@@ -1,0 +1,186 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-dark: #090d16;
+  --bg-canvas: #0e1422;
+  --panel-bg: rgba(18, 24, 38, 0.85);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --accent-cyan: #38bdf8;
+  --accent-emerald: #10b981;
+  --accent-rose: #f43f5e;
+  --accent-amber: #f59e0b;
+  --accent-purple: #a855f7;
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+code, .font-mono {
+  font-family: 'Fira Code', monospace;
+}
+
+/* Theme Variants */
+.theme-dark {
+  --bg-canvas: #0e1422;
+  --grid-line-color: rgba(255, 255, 255, 0.08);
+  --grid-dot-color: rgba(255, 255, 255, 0.12);
+  --wire-active-stroke: #38bdf8;
+  --wire-inactive-stroke: #334155;
+}
+
+.theme-cyberpunk {
+  --bg-canvas: #0d0718;
+  --grid-line-color: rgba(236, 72, 153, 0.15);
+  --grid-dot-color: rgba(6, 182, 212, 0.25);
+  --wire-active-stroke: #f43f5e;
+  --wire-inactive-stroke: #475569;
+}
+
+.theme-pcb {
+  --bg-canvas: #042f2e;
+  --grid-line-color: rgba(245, 158, 11, 0.2);
+  --grid-dot-color: rgba(16, 185, 129, 0.3);
+  --wire-active-stroke: #f59e0b;
+  --wire-inactive-stroke: #065f46;
+}
+
+/* Canvas Background Patterns */
+.canvas-grid {
+  background-color: var(--bg-canvas);
+}
+
+.grid-dots {
+  background-image: 
+    radial-gradient(circle, var(--grid-dot-color, rgba(255, 255, 255, 0.12)) 1.5px, transparent 1.5px),
+    linear-gradient(to right, var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px);
+  background-size: 24px 24px, 120px 120px, 120px 120px;
+}
+
+.grid-squares {
+  background-image: 
+    linear-gradient(to right, var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.grid-breadboard {
+  background-image: 
+    radial-gradient(circle, var(--grid-dot-color, rgba(255, 255, 255, 0.2)) 2px, transparent 2px),
+    linear-gradient(to bottom, rgba(244, 63, 94, 0.25) 2px, transparent 2px),
+    linear-gradient(to bottom, rgba(56, 189, 248, 0.25) 2px, transparent 2px);
+  background-size: 24px 24px, 100% 240px, 100% 240px;
+  background-position: 0 0, 0 12px, 0 228px;
+}
+
+/* Glassmorphism Panel */
+.glass-panel {
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+/* Glowing pin animation */
+@keyframes pulse-pin {
+  0% { transform: scale(1); box-shadow: 0 0 4px var(--accent-cyan); }
+  50% { transform: scale(1.2); box-shadow: 0 0 12px var(--accent-cyan); }
+  100% { transform: scale(1); box-shadow: 0 0 4px var(--accent-cyan); }
+}
+
+.pin-connecting {
+  animation: pulse-pin 1.2s infinite ease-in-out;
+}
+
+/* Wire Signal Pulse Animation */
+@keyframes wire-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.wire-active-flow {
+  stroke-dasharray: 6 6;
+  animation: wire-dash 0.6s linear infinite;
+}
+
+/* Animated PCB Signal Tracing */
+@keyframes pcb-trace-flow {
+  0% {
+    stroke-dashoffset: 600;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.pcb-trace-line {
+  stroke-dasharray: 100 200;
+  animation: pcb-trace-flow 6s linear infinite;
+}
+
+/* Lock Pulse Overlay */
+@keyframes lock-border-glow {
+  0% { box-shadow: 0 0 8px inset var(--lock-color, #f43f5e); }
+  50% { box-shadow: 0 0 20px inset var(--lock-color, #f43f5e); }
+  100% { box-shadow: 0 0 8px inset var(--lock-color, #f43f5e); }
+}
+
+.locked-component-frame {
+  animation: lock-border-glow 1.5s infinite ease-in-out;
+  pointer-events: none;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Spring Physics Snapping Animations */
+@keyframes wire-snap-spring {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+.wire-snap-pulse {
+  animation: wire-snap-spring 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes grid-lock-spring {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.grid-lock-snap {
+  animation: grid-lock-spring 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
