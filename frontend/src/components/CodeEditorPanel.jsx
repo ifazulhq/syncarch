@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { Cpu, Play, X, CheckCircle2, Terminal, Code2, Sparkles, Loader2, Download } from 'lucide-react';
+import { Cpu, Play, X, CheckCircle2, Terminal, Code2, Loader2, Download } from 'lucide-react';
 import { exportFirmwareIno } from '../utils/exportUtils';
 import { generateArduinoSketch } from '../utils/firmwareGenerator';
 
@@ -40,7 +40,7 @@ export default function CodeEditorPanel({ component, onClose, onSaveCode, compon
       setCode(generateArduinoSketch(components, wires, projectTitle) || DEFAULT_ARDUINO_SKETCH);
     }
     setCompileStatus(null);
-  }, [component?.id, components, wires, projectTitle]);
+  }, [component?.id]);
 
   const handleEditorChange = (value) => {
     const newCode = value || '';
@@ -83,20 +83,8 @@ export default function CodeEditorPanel({ component, onClose, onSaveCode, compon
           </div>
         </div>
 
-        {/* Action Controls: Generate, Export Firmware & Compile */}
+        {/* Action Controls: Export Firmware & Compile */}
         <div className="flex items-center space-x-2">
-          <button
-            onClick={() => {
-              const genCode = generateArduinoSketch(components, wires, projectTitle);
-              setCode(genCode);
-              if (component?.id) onSaveCode(component.id, genCode);
-            }}
-            className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-amber-400 hover:text-amber-300 transition cursor-pointer"
-            title="Auto-Generate C++ Sketch from Live Canvas Topology"
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
-
           <button
             onClick={() => exportFirmwareIno(components, wires, projectTitle, code)}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-cyan-300 hover:text-cyan-200 transition shadow-sm cursor-pointer"
@@ -162,6 +150,8 @@ export default function CodeEditorPanel({ component, onClose, onSaveCode, compon
           value={code}
           onChange={handleEditorChange}
           options={{
+            readOnly: false,
+            domReadOnly: false,
             minimap: { enabled: false },
             fontSize: 13,
             scrollBeyondLastLine: false,
