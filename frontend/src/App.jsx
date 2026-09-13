@@ -810,16 +810,20 @@ export default function App() {
     }
   }, [currentProjectId, isProjectPublic, projectTitle]);
 
+  const isLabRoute = location.pathname.startsWith('/lab') || location.pathname.startsWith('/room');
+
   return (
     <div className="relative w-screen h-screen bg-slate-950 text-slate-100 overflow-x-hidden font-sans">
-      {/* Global Top Navbar */}
-      <Navbar
-        authUser={authUser}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
-        onLogout={handleLogout}
-        isConnected={isConnected}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
+      {/* Global Top Navbar (Hidden on /lab workspace to prevent header overlapping) */}
+      {!isLabRoute && (
+        <Navbar
+          authUser={authUser}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
+          isConnected={isConnected}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+      )}
 
       {/* Toast Alert Banner */}
       {toastMessage && (

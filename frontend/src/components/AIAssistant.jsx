@@ -10,6 +10,12 @@ import { API_BASE_URL } from '../config';
 export default function AIAssistant({ isOpen: propIsOpen, onClose, components, wires, settings }) {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = propIsOpen !== undefined ? propIsOpen : internalIsOpen;
+  const setIsOpen = (val) => {
+    setInternalIsOpen(val);
+    if (!val && onClose) {
+      onClose();
+    }
+  };
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -262,7 +268,7 @@ export default function AIAssistant({ isOpen: propIsOpen, onClose, components, w
                   </div>
                 )}
 
-                <div ref={messagesEndRef} />
+                <div ref={chatEndRef} />
               </div>
 
               {/* Chat Input Field */}
