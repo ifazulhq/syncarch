@@ -43,11 +43,11 @@ describe('PSpice / SPICE Netlist Generator', () => {
     expect(netlist).toContain('* SyncArch Generated Netlist - v1.0');
     expect(netlist).toContain('* Project: Test OR Gate Circuit');
 
-    // Switches as DC sources
+    // Switches: Active as DC 5V source, Open as 100MEG high-impedance resistor
     expect(netlist).toContain('V_sw1');
     expect(netlist).toContain('DC 5');
-    expect(netlist).toContain('V_sw2');
-    expect(netlist).toContain('DC 0');
+    expect(netlist).toContain('R_sw2');
+    expect(netlist).toContain('100MEG');
 
     // OR Gate as 7432 X-subcircuit
     expect(netlist).toContain('X_gate1');

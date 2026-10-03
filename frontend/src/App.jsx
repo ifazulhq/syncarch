@@ -977,7 +977,7 @@ export default function App() {
                         />
                       )}
 
-                      <AIAssistant settings={settings} />
+                      <AIAssistant components={components} wires={wires} settings={settings} />
                     </motion.div>
                   </LabView>
                 </ProtectedRoute>

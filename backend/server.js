@@ -8,6 +8,7 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -678,13 +679,15 @@ app.get('/api/chat/history', (req, res) => {
   });
 });
 
-// POST /api/chat - AI Assistant endpoint with SQLite Persistence
+// POST /api/chat - AI Assistant endpoint with SQLite Persistence & Gemini 1.5 Flash
 app.post('/api/chat', async (req, res) => {
   try {
     const messageText = req.body.prompt || req.body.message;
     if (!messageText) {
       return res.status(400).json({ error: 'Message or prompt is required' });
     }
+
+    const { components = [], wires = [] } = req.body;
 
     // Save user message to SQLite
     db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['user', messageText], (err) => {
@@ -698,34 +701,27 @@ app.post('/api/chat', async (req, res) => {
       return res.json({ response: fallbackMsg });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-
-    const apiRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: "You are an ECE Assistant. User says: " + messageText }
-            ]
-          }
-        ]
-      })
-    });
-
-    const data = await apiRes.json();
-
-    if (data.error) {
-      console.error('Gemini REST API Error:', data.error);
-      const errMsg = `⚠️ Gemini API Error: ${data.error.message || JSON.stringify(data.error)}`;
-      db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['ai', errMsg]);
-      return res.status(500).json({ response: errMsg });
+    // Format schematic context
+    let contextPrompt = '';
+    if (components.length > 0 || wires.length > 0) {
+      const compSummary = components
+        .map((c) => `- ${c.label || c.type} (${c.type}, ID: ${c.id}) at (${c.x}, ${c.y}) [State: ${JSON.stringify(c.state || {})}]`)
+        .join('\n');
+      const wireSummary = wires
+        .map((w) => `- Wire from ${w.fromCompId}:${w.fromPin} to ${w.toCompId}:${w.toPin}`)
+        .join('\n');
+      contextPrompt = `\nCurrent Circuit Schematic Context:\nActive Components (${components.length}):\n${compSummary}\nActive Wires (${wires.length}):\n${wireSummary}\n`;
     }
 
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response text received from Gemini API.';
+    const systemInstruction = "You are an expert Electrical & Computer Engineering (ECE) assistant and circuit designer in SyncArch. Analyze the user's circuit and question, and provide accurate, actionable technical guidance.";
+    const fullPrompt = `${systemInstruction}\n${contextPrompt}\nUser Query: ${messageText}`;
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const result = await model.generateContent(fullPrompt);
+    const response = await result.response;
+    const responseText = response.text() || 'No response text received from Gemini API.';
 
     // Save AI response message to SQLite
     db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['ai', responseText], (err) => {

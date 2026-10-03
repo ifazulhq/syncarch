@@ -47,7 +47,7 @@ export default function AIAssistant({ isOpen: propIsOpen, onClose, components, w
         {
           id: 1,
           role: 'ai',
-          text: 'Hello! I am **Gemini 3.6 Flash**, your ECE Circuit AI Copilot. How can I assist with your logic design, pinouts, or code today?',
+          text: 'Hello! I am **Gemini 1.5 Flash**, your ECE Circuit AI Copilot. How can I assist with your logic design, pinouts, or code today?',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -89,7 +89,11 @@ export default function AIAssistant({ isOpen: propIsOpen, onClose, components, w
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ prompt: trimmed })
+        body: JSON.stringify({
+          prompt: trimmed,
+          components: components || [],
+          wires: wires || []
+        })
       });
 
       const data = await response.json();

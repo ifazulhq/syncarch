@@ -639,10 +639,16 @@ export function generateSpiceNetlist(components = [], wires = [], projectTitle =
     const type = (comp.type || '').toUpperCase();
     const state = comp.state || {};
 
-    if (type === 'SWITCH' || type === 'VCC') {
+    if (type === 'VCC') {
       const outNode = getNode(comp.id, 'out') || getNode(comp.id, 'vcc') || 'N1';
-      const voltage = state.active === false ? 0 : 5;
-      lines.push(`V_${compId} ${outNode} 0 DC ${voltage}`);
+      lines.push(`V_${compId} ${outNode} 0 DC 5`);
+    } else if (type === 'SWITCH') {
+      const outNode = getNode(comp.id, 'out') || 'N1';
+      if (state.active === false) {
+        lines.push(`R_${compId} ${outNode} 0 100MEG ; Open switch (high impedance)`);
+      } else {
+        lines.push(`V_${compId} ${outNode} 0 DC 5 ; Closed switch (5V logic)`);
+      }
     } else if (type === 'CLOCK') {
       const outNode = getNode(comp.id, 'out') || 'N1';
       lines.push(`V_${compId} ${outNode} 0 PULSE(0 5 0 1n 1n 5m 10m)`);
