@@ -41,7 +41,14 @@ export default function App() {
   const [userProjects, setUserProjects] = useState([]);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
+  const [toastMessage, rawSetToastMessage] = useState(null);
+  const setToastMessage = useCallback((msg) => {
+    if (!msg) {
+      rawSetToastMessage(null);
+      return;
+    }
+    rawSetToastMessage(typeof msg === 'string' ? { type: 'success', text: msg } : msg);
+  }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(() => {
     try {
@@ -496,7 +503,30 @@ export default function App() {
 
     setToastMessage(`Encapsulated ${selectedComps.length} components into Sub-circuit Macro!`);
     setTimeout(() => setToastMessage(null), 3000);
-  }, [components, wires]);
+  }, [components, wires, setToastMessage]);
+
+  const handleUpdateSubcircuit = useCallback((macroCompId, updatedSub) => {
+    setComponents((prev) =>
+      prev.map((c) =>
+        c.id === macroCompId
+          ? {
+              ...c,
+              subcircuit: updatedSub,
+              state: { ...(c.state || {}), subcircuit: updatedSub }
+            }
+          : c
+      )
+    );
+    setActiveSubcircuitModalComp((prev) =>
+      prev && prev.id === macroCompId
+        ? {
+            ...prev,
+            subcircuit: updatedSub,
+            state: { ...(prev.state || {}), subcircuit: updatedSub }
+          }
+        : prev
+    );
+  }, []);
 
   const handleAddComponent = useCallback((componentTypeOrObj) => {
     const newComp = typeof componentTypeOrObj === 'string'
@@ -1016,6 +1046,7 @@ export default function App() {
         onClose={() => setActiveSubcircuitModalComp(null)}
         component={activeSubcircuitModalComp}
         settings={settings}
+        onUpdateSubcircuit={handleUpdateSubcircuit}
       />
 
       <VersionHistoryModal
@@ -1072,8 +1103,14 @@ function LabView({ handleSelectProject, currentProjectId, children }) {
   }, [targetRoomId]);
 
   useEffect(() => {
-    const effectiveId = projectId || (roomId ? roomId.replace(/^sync-/, '') : null);
-    if (effectiveId && !isNaN(Number(effectiveId)) && String(effectiveId) !== String(currentProjectId)) {
+    const rawId = projectId || (roomId ? roomId.replace(/^sync-/, '') : null);
+    if (!rawId) return;
+
+    // Strip non-numeric prefixes (e.g. 'sync-lab-1' or 'lab-1' -> '1') so string project slugs don't evaluate to NaN and fail to load
+    const numericSuffixMatch = rawId.match(/^.*?(\d+)$/);
+    const effectiveId = numericSuffixMatch ? numericSuffixMatch[1] : rawId;
+
+    if (effectiveId && String(effectiveId) !== String(currentProjectId)) {
       handleSelectProject(effectiveId);
     }
   }, [projectId, roomId, currentProjectId, handleSelectProject]);
