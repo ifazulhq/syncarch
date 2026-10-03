@@ -32,12 +32,14 @@
     "@babel/core": "^8.0.5",
     "@babel/preset-env": "^8.0.5",
     "@babel/preset-react": "^8.0.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "babel-jest": "^30.5.1",
     "jest": "^30.5.1",
     "oxlint": "^1.81.0",
+    "tailwindcss": "^4.3.3",
     "vite": "^8.3.0"
   }
 }

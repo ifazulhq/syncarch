@@ -545,7 +545,6 @@ export default function App() {
     setUserProjects([]);
     setComponents([]);
     setWires([]);
-    socket.emit('canvas:sync', { components: [], wires: [] });
     navigate('/');
     setToastMessage({ type: 'success', text: 'Logged out successfully. Access locked.' });
     setTimeout(() => setToastMessage(null), 3000);

@@ -767,8 +767,8 @@ const USER_NAMES = [
 let colorIndex = 0;
 let nameIndex = 0;
 
-// In-Memory Canvas State
-let components = [
+// Default Canvas Blueprint
+const DEFAULT_COMPONENTS = [
   {
     id: 'esp32-1',
     type: 'ESP32',
@@ -836,7 +836,7 @@ let components = [
   }
 ];
 
-let wires = [
+const DEFAULT_WIRES = [
   {
     id: 'wire-1',
     fromCompId: 'esp32-1',
@@ -858,47 +858,75 @@ let wires = [
 // Socket ID -> User metadata
 const users = new Map();
 
-// Component ID -> { socketId, name, color }
-const locks = new Map();
+// Rooms Map: roomId -> { id, components: [...], wires: [...], locks: Map<componentId, lockData> }
+const rooms = new Map();
 
-// Helper to evaluate component logic across circuit
-function reevaluateLogic() {
+function getOrCreateRoom(roomId = 'global') {
+  const id = String(roomId || 'global');
+  if (!rooms.has(id)) {
+    const initialComponents = JSON.parse(JSON.stringify(DEFAULT_COMPONENTS));
+    const initialWires = JSON.parse(JSON.stringify(DEFAULT_WIRES));
+    const room = {
+      id,
+      components: initialComponents,
+      wires: initialWires,
+      locks: new Map()
+    };
+    reevaluateLogic(room);
+    rooms.set(id, room);
+  }
+  return rooms.get(id);
+}
+
+function serializeLocks(roomLocks) {
+  const locksObj = {};
+  if (roomLocks) {
+    roomLocks.forEach((val, key) => {
+      locksObj[key] = val;
+    });
+  }
+  return locksObj;
+}
+
+// Helper to evaluate component logic across circuit for a specific room
+function reevaluateLogic(room) {
+  if (!room || !Array.isArray(room.components) || !Array.isArray(room.wires)) return;
   const pinSignals = new Map();
 
   // 1. Initial Power & Source Nodes
-  components.forEach(comp => {
+  room.components.forEach(comp => {
     if (comp.type === 'SWITCH') {
-      pinSignals.set(`${comp.id}:out`, comp.state.active ? 1 : 0);
+      pinSignals.set(`${comp.id}:out`, comp.state?.active ? 1 : 0);
     } else if (comp.type === 'VCC') {
       pinSignals.set(`${comp.id}:out`, 1);
     } else if (comp.type === 'GND') {
       pinSignals.set(`${comp.id}:out`, 0);
     } else if (comp.type === 'CLOCK') {
-      pinSignals.set(`${comp.id}:out`, comp.state.signal ?? 1);
+      pinSignals.set(`${comp.id}:out`, comp.state?.signal ?? 1);
     } else if (comp.type === 'ESP32') {
-      pinSignals.set(`${comp.id}:GPIO4`, comp.state.pinStates?.GPIO4 ?? 1);
+      pinSignals.set(`${comp.id}:GPIO4`, comp.state?.pinStates?.GPIO4 ?? 1);
       pinSignals.set(`${comp.id}:3V3`, 1);
       pinSignals.set(`${comp.id}:GND`, 0);
     } else if (comp.type === 'ARDUINO') {
-      pinSignals.set(`${comp.id}:D2`, comp.state.pinStates?.D2 ?? 1);
+      pinSignals.set(`${comp.id}:D2`, comp.state?.pinStates?.D2 ?? 1);
       pinSignals.set(`${comp.id}:5V`, 1);
       pinSignals.set(`${comp.id}:GND`, 0);
     } else if (comp.type === 'LDR') {
-      pinSignals.set(`${comp.id}:out`, (comp.state.lux ?? 500) > 200 ? 1 : 0);
+      pinSignals.set(`${comp.id}:out`, (comp.state?.lux ?? 500) > 200 ? 1 : 0);
     } else if (comp.type === 'POTENTIOMETER') {
-      pinSignals.set(`${comp.id}:wiper`, (comp.state.position ?? 50) > 50 ? 1 : 0);
+      pinSignals.set(`${comp.id}:wiper`, (comp.state?.position ?? 50) > 50 ? 1 : 0);
     }
   });
 
   // 2. Pass 1 Signal Transfer across wires
-  wires.forEach(wire => {
+  room.wires.forEach(wire => {
     const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
     wire.active = signalVal === 1;
     pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
   });
 
   // 3. Logic Gate & Subsystem Evaluation
-  components.forEach(comp => {
+  room.components.forEach(comp => {
     if (comp.type === 'NAND') {
       const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
       const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
@@ -968,8 +996,8 @@ function reevaluateLogic() {
     } else if (comp.type === 'SR_LATCH') {
       const s = pinSignals.get(`${comp.id}:s`) ?? 0;
       const r = pinSignals.get(`${comp.id}:r`) ?? 0;
-      let q = comp.state.q ?? 0;
-      let qBar = comp.state.qBar ?? 1;
+      let q = comp.state?.q ?? 0;
+      let qBar = comp.state?.qBar ?? 1;
       let invalidState = false;
 
       if (s === 1 && r === 1) {
@@ -990,8 +1018,8 @@ function reevaluateLogic() {
       const dataIn = pinSignals.get(`${comp.id}:dataIn`) ?? 0;
       const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
       const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
-      const prevClk = comp.state.prevClk ?? 0;
-      let buffer = [...(comp.state.buffer || [0, 0, 0, 0])];
+      const prevClk = comp.state?.prevClk ?? 0;
+      let buffer = [...(comp.state?.buffer || [0, 0, 0, 0])];
 
       if (reset === 1) {
         buffer = [0, 0, 0, 0];
@@ -1016,8 +1044,8 @@ function reevaluateLogic() {
       const enable = pinSignals.get(`${comp.id}:enable`) ?? 1;
       const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
       const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
-      const prevClk = comp.state.prevClk ?? 0;
-      let count = comp.state.count ?? 0;
+      const prevClk = comp.state?.prevClk ?? 0;
+      let count = comp.state?.count ?? 0;
 
       if (reset === 1) {
         count = 0;
@@ -1063,18 +1091,18 @@ function reevaluateLogic() {
   });
 
   // 4. Pass 2 Signal Transfer for Downstream Connections
-  wires.forEach(wire => {
+  room.wires.forEach(wire => {
     const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
     wire.active = signalVal === 1;
     pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
   });
 
   // 5. Flip-Flop & Visual Output Evaluation
-  components.forEach(comp => {
+  room.components.forEach(comp => {
     if (comp.type === 'DFF') {
       const d = pinSignals.get(`${comp.id}:d`) ?? 0;
       const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
-      const q = clk === 1 ? d : (comp.state.q ?? 0);
+      const q = clk === 1 ? d : (comp.state?.q ?? 0);
       comp.state = { ...comp.state, d, clk, q, qBar: q === 1 ? 0 : 1 };
       pinSignals.set(`${comp.id}:q`, comp.state.q);
       pinSignals.set(`${comp.id}:qBar`, comp.state.qBar);
@@ -1085,11 +1113,17 @@ function reevaluateLogic() {
   });
 }
 
-// Perform initial logic evaluation
-reevaluateLogic();
+// Perform initial logic evaluation for default global room
+getOrCreateRoom('global');
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', components: components.length, users: users.size });
+  const globalRoom = rooms.get('global');
+  res.json({
+    status: 'ok',
+    rooms: rooms.size,
+    components: globalRoom ? globalRoom.components.length : 0,
+    users: users.size
+  });
 });
 
 io.on('connection', (socket) => {
@@ -1107,20 +1141,19 @@ io.on('connection', (socket) => {
   };
 
   users.set(socket.id, userInfo);
+  socket.join('global');
   console.log(`[Connect] ${userName} (${socket.id}) connected.`);
 
-  // Send initial canvas state to newly joined client
-  const locksObj = {};
-  locks.forEach((val, key) => {
-    locksObj[key] = val;
-  });
+  // Send initial canvas state for default global room
+  const initialRoom = getOrCreateRoom('global');
+  const roomUsers = Array.from(users.values()).filter(u => u.roomId === 'global');
 
   socket.emit('init:state', {
     myUser: userInfo,
-    users: Array.from(users.values()),
-    components,
-    wires,
-    locks: locksObj
+    users: roomUsers,
+    components: initialRoom.components,
+    wires: initialRoom.wires,
+    locks: serializeLocks(initialRoom.locks)
   });
 
   // 0. Room Join & Session Handling
@@ -1131,6 +1164,19 @@ io.on('connection', (socket) => {
 
     if (oldRoom && oldRoom !== targetRoom) {
       socket.leave(oldRoom);
+      const oldRm = rooms.get(oldRoom);
+      if (oldRm && oldRm.locks) {
+        const unlockedIds = [];
+        oldRm.locks.forEach((lock, compId) => {
+          if (lock.socketId === socket.id) {
+            oldRm.locks.delete(compId);
+            unlockedIds.push(compId);
+          }
+        });
+        unlockedIds.forEach(id => {
+          io.to(oldRoom).emit('component:unlocked', { componentId: id });
+        });
+      }
       const oldRoomUsers = Array.from(users.values()).filter(u => u.roomId === oldRoom && u.id !== socket.id);
       io.to(oldRoom).emit('room:users', { roomId: oldRoom, users: oldRoomUsers });
     }
@@ -1138,18 +1184,19 @@ io.on('connection', (socket) => {
     userInfo.roomId = targetRoom;
     socket.join(targetRoom);
 
-    const roomUsers = Array.from(users.values()).filter(u => u.roomId === targetRoom);
-    io.to(targetRoom).emit('room:users', { roomId: targetRoom, users: roomUsers });
+    const room = getOrCreateRoom(targetRoom);
+    const currentRoomUsers = Array.from(users.values()).filter(u => u.roomId === targetRoom);
+    io.to(targetRoom).emit('room:users', { roomId: targetRoom, users: currentRoomUsers });
 
     socket.emit('init:state', {
       myUser: userInfo,
-      users: roomUsers,
-      components,
-      wires,
-      locks: locksObj
+      users: currentRoomUsers,
+      components: room.components,
+      wires: room.wires,
+      locks: serializeLocks(room.locks)
     });
 
-    console.log(`[Room] ${userInfo.name} joined room "${targetRoom}". Room user count: ${roomUsers.length}`);
+    console.log(`[Room] ${userInfo.name} joined room "${targetRoom}". Room user count: ${currentRoomUsers.length}`);
   });
 
   // 0. User Profile Identification & Sync
@@ -1181,8 +1228,9 @@ io.on('connection', (socket) => {
 
   // 2. Block-Locking Mechanism
   socket.on('component:lock', ({ componentId }) => {
-    const existingLock = locks.get(componentId);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const existingLock = room.locks.get(componentId);
 
     if (!existingLock || existingLock.socketId === socket.id) {
       const lockData = {
@@ -1190,7 +1238,7 @@ io.on('connection', (socket) => {
         name: userInfo.name,
         color: userInfo.color
       };
-      locks.set(componentId, lockData);
+      room.locks.set(componentId, lockData);
       socket.emit('component:lock_ack', { componentId, success: true });
       io.to(currentRoom).emit('component:locked', { componentId, lock: lockData });
       console.log(`[Lock] Component ${componentId} locked by ${userInfo.name} in room ${currentRoom}`);
@@ -1204,21 +1252,23 @@ io.on('connection', (socket) => {
   });
 
   socket.on('component:unlock', ({ componentId }) => {
-    const existingLock = locks.get(componentId);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const existingLock = room.locks.get(componentId);
     if (existingLock && existingLock.socketId === socket.id) {
-      locks.delete(componentId);
+      room.locks.delete(componentId);
       io.to(currentRoom).emit('component:unlocked', { componentId });
-      console.log(`[Unlock] Component ${componentId} unlocked by ${userInfo.name}`);
+      console.log(`[Unlock] Component ${componentId} unlocked by ${userInfo.name} in room ${currentRoom}`);
     }
   });
 
   // 3. Drag / Position Movement Updates
   socket.on('component:move', ({ id, x, y }) => {
-    const comp = components.find(c => c.id === id);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const comp = room.components.find(c => c.id === id);
     if (comp) {
-      const existingLock = locks.get(id);
+      const existingLock = room.locks.get(id);
       if (!existingLock || existingLock.socketId === socket.id) {
         comp.x = x;
         comp.y = y;
@@ -1228,8 +1278,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('component:rotate', ({ id, rotation }) => {
-    const comp = components.find(c => c.id === id);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const comp = room.components.find(c => c.id === id);
     if (comp) {
       comp.rotation = rotation;
       socket.to(currentRoom).emit('component:rotated', { id, rotation });
@@ -1239,99 +1290,126 @@ io.on('connection', (socket) => {
   // 4. Component Creation & Canvas Sync
   socket.on('canvas:sync', (data) => {
     const currentRoom = userInfo.roomId || 'global';
-    if (data && Array.isArray(data.components)) components = data.components;
-    if (data && Array.isArray(data.wires)) wires = data.wires;
-    reevaluateLogic();
-    socket.to(currentRoom).emit('canvas:sync', { components, wires });
+    const room = getOrCreateRoom(currentRoom);
+    if (data && Array.isArray(data.components)) room.components = data.components;
+    if (data && Array.isArray(data.wires)) room.wires = data.wires;
+    reevaluateLogic(room);
+    socket.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
   });
 
   socket.on('component:add', (newComp) => {
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
     if (newComp && newComp.id) {
-      if (!components.some(c => c.id === newComp.id)) {
-        components.push(newComp);
+      if (!room.components.some(c => c.id === newComp.id)) {
+        room.components.push(newComp);
       }
-      reevaluateLogic();
-      io.to(currentRoom).emit('canvas:sync', { components, wires });
+      reevaluateLogic(room);
+      io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
     }
   });
 
   // 5. Component Logic State Toggle & Update
   socket.on('component:toggle', ({ id, state: statePayload }) => {
-    const comp = components.find(c => c.id === id);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const comp = room.components.find(c => c.id === id);
     if (comp) {
       if (statePayload) {
         comp.state = { ...comp.state, ...statePayload };
       } else if (comp.type === 'SWITCH') {
         comp.state.active = !comp.state.active;
       } else if (comp.type === 'ESP32') {
+        if (!comp.state.pinStates) comp.state.pinStates = {};
         comp.state.pinStates.GPIO4 = comp.state.pinStates.GPIO4 === 1 ? 0 : 1;
       }
-      reevaluateLogic();
-      io.to(currentRoom).emit('canvas:sync', { components, wires });
+      reevaluateLogic(room);
+      io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
     }
   });
 
   socket.on('component:update', ({ id, state: statePayload }) => {
-    const comp = components.find(c => c.id === id);
     const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const comp = room.components.find(c => c.id === id);
     if (comp && statePayload) {
       comp.state = { ...comp.state, ...statePayload };
-      reevaluateLogic();
-      io.to(currentRoom).emit('canvas:sync', { components, wires });
+      reevaluateLogic(room);
+      io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
     }
   });
 
   // 6. Component Deletion
   socket.on('component:delete', ({ id }) => {
     const currentRoom = userInfo.roomId || 'global';
-    components = components.filter(c => c.id !== id);
-    wires = wires.filter(w => w.fromCompId !== id && w.toCompId !== id);
-    locks.delete(id);
-    reevaluateLogic();
+    const room = getOrCreateRoom(currentRoom);
+    room.components = room.components.filter(c => c.id !== id);
+    room.wires = room.wires.filter(w => w.fromCompId !== id && w.toCompId !== id);
+    room.locks.delete(id);
+    reevaluateLogic(room);
     io.to(currentRoom).emit('component:deleted', { id });
-    io.to(currentRoom).emit('canvas:sync', { components, wires });
+    io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
   });
 
   // 7. Wire Connection Addition & Deletion
   socket.on('wire:add', (wire) => {
     const currentRoom = userInfo.roomId || 'global';
-    const exists = wires.some(w => 
+    const room = getOrCreateRoom(currentRoom);
+    const exists = room.wires.some(w => 
       w.fromCompId === wire.fromCompId && w.fromPin === wire.fromPin &&
       w.toCompId === wire.toCompId && w.toPin === wire.toPin
     );
     if (!exists) {
-      wires.push(wire);
-      reevaluateLogic();
-      io.to(currentRoom).emit('canvas:sync', { components, wires });
+      room.wires.push(wire);
+      reevaluateLogic(room);
+      io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
     }
   });
 
   socket.on('wire:delete', ({ id }) => {
     const currentRoom = userInfo.roomId || 'global';
-    wires = wires.filter(w => w.id !== id);
-    reevaluateLogic();
-    io.to(currentRoom).emit('canvas:sync', { components, wires });
+    const room = getOrCreateRoom(currentRoom);
+    room.wires = room.wires.filter(w => w.id !== id);
+    reevaluateLogic(room);
+    io.to(currentRoom).emit('canvas:sync', { components: room.components, wires: room.wires });
   });
 
-  // 8. Disconnect Cleanup
+  // 8. Pin Net Label Assignment Sync
+  socket.on('pin:netlabel', ({ compId, pinId, netLabel }) => {
+    const currentRoom = userInfo.roomId || 'global';
+    const room = getOrCreateRoom(currentRoom);
+    const comp = room.components.find(c => c.id === compId);
+    if (comp) {
+      if (!comp.netLabels) comp.netLabels = {};
+      comp.netLabels[pinId] = netLabel;
+      if (comp.pins) {
+        comp.pins = comp.pins.map(p => (p.id === pinId ? { ...p, netLabel } : p));
+      }
+    }
+    socket.to(currentRoom).emit('pin:netlabel', { compId, pinId, netLabel });
+  });
+
+  // 9. Disconnect Cleanup
   socket.on('disconnect', () => {
     const currentRoom = userInfo.roomId || 'global';
     console.log(`[Disconnect] ${userInfo.name} (${socket.id}) left room ${currentRoom}.`);
     users.delete(socket.id);
 
-    // Clean up locks held by this disconnected user
-    const unlockedIds = [];
-    locks.forEach((lock, compId) => {
-      if (lock.socketId === socket.id) {
-        locks.delete(compId);
-        unlockedIds.push(compId);
-      }
-    });
+    // Clean up locks held by this disconnected user across any rooms
+    rooms.forEach((rm, rId) => {
+      if (rm.locks) {
+        const unlockedIds = [];
+        rm.locks.forEach((lock, compId) => {
+          if (lock.socketId === socket.id) {
+            rm.locks.delete(compId);
+            unlockedIds.push(compId);
+          }
+        });
 
-    unlockedIds.forEach(id => {
-      io.to(currentRoom).emit('component:unlocked', { componentId: id });
+        unlockedIds.forEach(id => {
+          io.to(rId).emit('component:unlocked', { componentId: id });
+        });
+      }
     });
 
     const remainingRoomUsers = Array.from(users.values()).filter(u => u.roomId === currentRoom);
