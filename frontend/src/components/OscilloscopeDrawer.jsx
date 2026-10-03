@@ -5,7 +5,9 @@ export default function OscilloscopeDrawer({ components = [], wires = [], isRunn
   const [isOpen, setIsOpen] = useState(false);
   const [selectedChannels, setSelectedChannels] = useState([]);
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   const historyRef = useRef([]); // Stores time-series data points [{ timestamp, signals: { [channelId]: 0/1 } }]
+  const [dimensions, setDimensions] = useState({ width: 760, height: 210 });
 
   // Extract plottable logic signals from active components
   const availableChannels = components.flatMap((c) => {
@@ -51,6 +53,34 @@ export default function OscilloscopeDrawer({ components = [], wires = [], isRunn
       historyRef.current.shift();
     }
   }, [components, isRunning, isOpen]);
+
+  // Dynamic Canvas Sizing: ResizeObserver to match container element's actual pixel dimensions
+  useEffect(() => {
+    if (!isOpen) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          const pixelW = Math.floor(width);
+          const pixelH = Math.floor(height);
+          if (canvasRef.current) {
+            canvasRef.current.width = pixelW;
+            canvasRef.current.height = pixelH;
+          }
+          setDimensions((prev) => {
+            if (prev.width === pixelW && prev.height === pixelH) return prev;
+            return { width: pixelW, height: pixelH };
+          });
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [isOpen]);
 
   // Draw HTML5 Canvas Digital Waveforms
   useEffect(() => {
@@ -133,7 +163,7 @@ export default function OscilloscopeDrawer({ components = [], wires = [], isRunn
 
       ctx.stroke();
     });
-  }, [isOpen, selectedChannels, components]);
+  }, [isOpen, selectedChannels, components, dimensions]);
 
   const toggleChannel = (chId) => {
     setSelectedChannels((prev) =>
@@ -184,12 +214,13 @@ export default function OscilloscopeDrawer({ components = [], wires = [], isRunn
       {isOpen && (
         <div className="h-64 bg-slate-950 border-t border-slate-800 flex flex-col md:flex-row p-4 gap-4">
           {/* Waveform HTML5 Canvas */}
-          <div className="flex-1 h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-inner relative">
+          <div
+            ref={containerRef}
+            className="flex-1 h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-inner relative"
+          >
             <canvas
               ref={canvasRef}
-              width={760}
-              height={210}
-              className="w-full h-full"
+              className="w-full h-full block"
             />
           </div>
 

@@ -7,7 +7,34 @@ export default function WireLayer({ components, wires, activeWireSource, mousePo
   const activeStrokeColor = currentTheme === 'cyberpunk' ? '#f43f5e' : (currentTheme === 'pcb' ? '#f59e0b' : '#38bdf8');
   const inactiveStrokeColor = currentTheme === 'cyberpunk' ? '#475569' : (currentTheme === 'pcb' ? '#047857' : '#64748b');
 
-  // Helper to calculate exact (x, y) coordinates locking directly to port circle centers
+// Calculate internal content height based on component block type
+const getComponentContentHeight = (type) => {
+  switch (type) {
+    case 'OLED12864':
+      return 138;
+    case 'LCD1602':
+      return 103;
+    case 'SHIFT_REG_4BIT':
+    case 'COUNTER_4BIT':
+      return 84;
+    case 'JKFF':
+    case 'TFF':
+    case 'DFF':
+    case 'SR_LATCH':
+      return 70;
+    case 'SERVO':
+    case 'LDR':
+      return 66;
+    case 'ESP32':
+      return 64;
+    case 'POTENTIOMETER':
+      return 62;
+    default:
+      return 52;
+  }
+};
+
+  // Pure mathematical geometry derived from grid coordinates and pin indices (Zero DOM layout thrashing)
   const getPinCoords = (compId, pinId) => {
     const comp = components.find(c => c.id === compId);
     if (!comp) return { x: 0, y: 0 };
@@ -15,40 +42,35 @@ export default function WireLayer({ components, wires, activeWireSource, mousePo
     const pin = comp.pins?.find(p => p.id === pinId);
     if (!pin) return { x: comp.x, y: comp.y };
 
-    // 1. Precise DOM measurement of circular port element
-    const pinEl = document.querySelector(`[data-pin-id="${compId}:${pinId}"]`);
-    const canvasWorldEl = pinEl?.closest('.canvas-grid')?.querySelector('div[style*="translate3d"]');
-
-    if (pinEl && canvasWorldEl) {
-      const pinRect = pinEl.getBoundingClientRect();
-      const worldRect = canvasWorldEl.getBoundingClientRect();
-      const s = scale || 1.0;
-
-      // Absolute center of the circular port circle in canvas world coordinates
-      const worldX = Math.round((pinRect.left + pinRect.width / 2 - worldRect.left) / s);
-      const worldY = Math.round((pinRect.top + pinRect.height / 2 - worldRect.top) / s);
-
-      if (worldX > 0 && worldY > 0) {
-        return { x: worldX, y: worldY };
-      }
-    }
-
-    // 2. High-precision fallback using component grid coordinates (matching EngineeringBlock w-72 geometry)
     const isOutput = pin.direction === 'output';
-    const sameDirectionPins = comp.pins.filter(p => p.direction === pin.direction);
+    const sameDirectionPins = (comp.pins || []).filter(p => p.direction === pin.direction);
     const pinIndex = sameDirectionPins.findIndex(p => p.id === pinId);
+    const safePinIndex = pinIndex >= 0 ? pinIndex : 0;
 
-    // Input pin center: 16px padding + 7px radius = 23px
-    // Output pin center: 288px width - 16px padding - 7px radius = 265px
+    // Horizontal geometry:
+    // Container: w-72 (288px), p-4 (16px padding)
+    // Input pin circle center: comp.x + 16 (pad) + 7 (radius) = comp.x + 23
+    // Output pin circle center: comp.x + 288 - 16 - 7 = comp.x + 265
     const rawX = isOutput ? comp.x + 265 : comp.x + 23;
-    const rawY = comp.y + 138 + (pinIndex * 22);
+
+    // Vertical geometry:
+    // Header (~61px) + internal content + divider section (~21px) = 82 + contentH
+    // Each pin row has 14px circle centered in 16px row (pitch 24px)
+    const contentH = getComponentContentHeight(comp.type);
+    const pinsTop = 82 + contentH;
+    const rawY = comp.y + pinsTop + 8 + (safePinIndex * 24);
 
     const rot = comp.rotation || 0;
     if (!rot) return { x: rawX, y: rawY };
 
-    // Rotate raw pin coordinate around component center (w-72 = 288px, h ~ 180px)
+    // Dynamic component height based on pin count and block type
+    const inputCount = (comp.pins || []).filter(p => p.direction === 'input').length;
+    const outputCount = (comp.pins || []).filter(p => p.direction === 'output').length;
+    const maxPins = Math.max(inputCount, outputCount, 1);
     const compW = 288;
-    const compH = 180;
+    const compH = pinsTop + (maxPins * 24) + 16;
+
+    // Center of rotation (CSS transform-origin: 50% 50%)
     const cx = comp.x + compW / 2;
     const cy = comp.y + compH / 2;
 

@@ -3,7 +3,7 @@ import { Navigation } from 'lucide-react';
 
 export default function CursorOverlay({ users, myUser }) {
   return (
-    <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden">
+    <div className="absolute inset-0 pointer-events-none z-30">
       {users
         .filter((user) => user.id !== myUser?.id && user.cursor)
         .map((user) => {

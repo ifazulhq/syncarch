@@ -209,12 +209,9 @@ export default function Canvas({
       });
     }
 
-    // Un-transformed screen coordinates for multiplayer cursor overlay
-    const screenCoords = { x: e.clientX, y: e.clientY };
-    throttledCursorMove(screenCoords);
-
-    // Transformed canvas world coordinates for wire drafting & selection
+    // Transformed canvas world coordinates for wire drafting, selection & multiplayer cursor overlay
     const { x: canvasX, y: canvasY } = getCanvasCoordinates(e);
+    throttledCursorMove({ x: canvasX, y: canvasY });
     setMousePos({ x: canvasX, y: canvasY });
 
     if (selectionBox) {
@@ -351,10 +348,9 @@ export default function Canvas({
             className="absolute border-2 border-dashed border-amber-400 bg-amber-500/10 pointer-events-none rounded-lg z-30"
           />
         )}
+        {/* Multiplayer Real-time Cursor Overlay (Canvas World Space) */}
+        <CursorOverlay users={users} myUser={myUser} />
       </div>
-
-      {/* Multiplayer Real-time Cursor Overlay (Screen Space) */}
-      <CursorOverlay users={users} myUser={myUser} />
 
       {/* Navigable Mini-Map Component for Schematic Management */}
       <MiniMap
