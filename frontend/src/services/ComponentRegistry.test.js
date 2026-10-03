@@ -279,4 +279,120 @@ describe('ComponentRegistry Logic Gates & Circuit Blocks', () => {
     });
   });
 
+  describe('3-to-8 Decoder (DEC38)', () => {
+    const decoder = COMPONENT_REGISTRY.DEC38;
+
+    test('Contains complete 8-output pin definitions y0-y7', () => {
+      const pinIds = decoder.pins.map(p => p.id);
+      expect(pinIds).toContain('y0');
+      expect(pinIds).toContain('y1');
+      expect(pinIds).toContain('y2');
+      expect(pinIds).toContain('y3');
+      expect(pinIds).toContain('y4');
+      expect(pinIds).toContain('y5');
+      expect(pinIds).toContain('y6');
+      expect(pinIds).toContain('y7');
+    });
+
+    test('Decodes 3-bit binary addresses to 1-of-8 active line', () => {
+      // 000 -> Y0
+      expect(decoder.calculateState({ a0: 0, a1: 0, a2: 0 })).toMatchObject({ activeLine: 0, y0: 1, y1: 0, y7: 0 });
+      // 011 -> Y3
+      expect(decoder.calculateState({ a0: 1, a1: 1, a2: 0 })).toMatchObject({ activeLine: 3, y3: 1, y0: 0, y7: 0 });
+      // 100 -> Y4
+      expect(decoder.calculateState({ a0: 0, a1: 0, a2: 1 })).toMatchObject({ activeLine: 4, y4: 1, y0: 0, y5: 0 });
+      // 111 -> Y7
+      expect(decoder.calculateState({ a0: 1, a1: 1, a2: 1 })).toMatchObject({ activeLine: 7, y7: 1, y0: 0, y6: 0 });
+    });
+  });
+
+  describe('Analog Models: OPAMP, DIODE, RESISTOR', () => {
+    test('OPAMP comparator saturation & output calculation', () => {
+      const opamp = COMPONENT_REGISTRY.OPAMP;
+      // Vpos > Vneg -> saturated high (+5V, output 1)
+      const resHigh = opamp.calculateState({ nonInv: 3.0, inv: 2.0, vcc: 5.0, vee: 0.0 });
+      expect(resHigh.vout).toBe(5.0);
+      expect(resHigh.output).toBe(1);
+      expect(resHigh.saturated).toBe(true);
+
+      // Vpos < Vneg -> saturated low (0V, output 0)
+      const resLow = opamp.calculateState({ nonInv: 1.0, inv: 3.5, vcc: 5.0, vee: 0.0 });
+      expect(resLow.vout).toBe(0.0);
+      expect(resLow.output).toBe(0);
+      expect(resLow.saturated).toBe(true);
+    });
+
+    test('DIODE forward conduction & reverse cutoff', () => {
+      const diode = COMPONENT_REGISTRY.DIODE;
+      // Anode HIGH, Cathode LOW -> Conducting with 0.7V forward drop
+      const conductingState = diode.calculateState({ anode: 1, cathode: 0 });
+      expect(conductingState.conducting).toBe(true);
+      expect(conductingState.output).toBe(1);
+      expect(conductingState.cathodeVoltage).toBe(4.3);
+
+      // Anode LOW -> Cutoff
+      const cutoffState = diode.calculateState({ anode: 0, cathode: 0 });
+      expect(cutoffState.conducting).toBe(false);
+      expect(cutoffState.output).toBe(0);
+    });
+
+    test('RESISTOR linear transmission', () => {
+      const resistor = COMPONENT_REGISTRY.RESISTOR;
+      const res = resistor.calculateState({ t1: 1 });
+      expect(res.output).toBe(1);
+      expect(res.t2).toBe(1);
+      expect(res.inVoltage).toBe(5.0);
+    });
+  });
+
+  describe('Short-Circuit / Wire Conflict Detection', () => {
+    test('Flags conflict when opposing logic levels drive the same node', () => {
+      const components = [
+        { id: 'vcc1', type: 'VCC', state: {} },
+        { id: 'gnd1', type: 'GND', state: {} },
+        { id: 'led1', type: 'LED', state: {}, pins: [{ id: 'in', direction: 'input' }] }
+      ];
+      const wires = [
+        { id: 'w1', fromCompId: 'vcc1', fromPin: 'out', toCompId: 'led1', toPin: 'in' },
+        { id: 'w2', fromCompId: 'gnd1', fromPin: 'out', toCompId: 'led1', toPin: 'in' }
+      ];
+
+      const { components: evaluatedComps, wires: evaluatedWires } = evaluateCircuitTopology(components, wires);
+      const targetComp = evaluatedComps.find(c => c.id === 'led1');
+      expect(targetComp.state.shortCircuit).toBe(true);
+      expect(evaluatedWires.some(w => w.conflict)).toBe(true);
+    });
+  });
+
+  describe('Topological Convergence Loop (Deep Propagation)', () => {
+    test('Propagates through a multi-stage logic chain in a single simulation run', () => {
+      // 4-stage inverter chain: SW -> NOT1 -> NOT2 -> NOT3 -> LED
+      const components = [
+        { id: 'sw', type: 'SWITCH', state: { active: true }, pins: [{ id: 'out', direction: 'output' }] },
+        { id: 'not1', type: 'NOT', state: { output: 0 }, pins: [{ id: 'inA', direction: 'input' }, { id: 'outY', direction: 'output' }] },
+        { id: 'not2', type: 'NOT', state: { output: 1 }, pins: [{ id: 'inA', direction: 'input' }, { id: 'outY', direction: 'output' }] },
+        { id: 'not3', type: 'NOT', state: { output: 0 }, pins: [{ id: 'inA', direction: 'input' }, { id: 'outY', direction: 'output' }] },
+        { id: 'led', type: 'LED', state: { active: true }, pins: [{ id: 'in', direction: 'input' }] }
+      ];
+      const wires = [
+        { id: 'w1', fromCompId: 'sw', fromPin: 'out', toCompId: 'not1', toPin: 'inA' },
+        { id: 'w2', fromCompId: 'not1', fromPin: 'outY', toCompId: 'not2', toPin: 'inA' },
+        { id: 'w3', fromCompId: 'not2', fromPin: 'outY', toCompId: 'not3', toPin: 'inA' },
+        { id: 'w4', fromCompId: 'not3', fromPin: 'outY', toCompId: 'led', toPin: 'in' }
+      ];
+
+      // SW=1 -> NOT1=0 -> NOT2=1 -> NOT3=0 -> LED=false
+      const { components: evaluatedComps } = evaluateCircuitTopology(components, wires);
+      const not1 = evaluatedComps.find(c => c.id === 'not1');
+      const not2 = evaluatedComps.find(c => c.id === 'not2');
+      const not3 = evaluatedComps.find(c => c.id === 'not3');
+      const led = evaluatedComps.find(c => c.id === 'led');
+
+      expect(not1.state.output).toBe(0);
+      expect(not2.state.output).toBe(1);
+      expect(not3.state.output).toBe(0);
+      expect(led.state.active).toBe(false);
+    });
+  });
+
 });

@@ -888,229 +888,300 @@ function serializeLocks(roomLocks) {
   return locksObj;
 }
 
-// Helper to evaluate component logic across circuit for a specific room
+// Helper to evaluate component logic across circuit for a specific room with convergence loop
 function reevaluateLogic(room) {
   if (!room || !Array.isArray(room.components) || !Array.isArray(room.wires)) return;
-  const pinSignals = new Map();
 
-  // 1. Initial Power & Source Nodes
-  room.components.forEach(comp => {
-    if (comp.type === 'SWITCH') {
-      pinSignals.set(`${comp.id}:out`, comp.state?.active ? 1 : 0);
-    } else if (comp.type === 'VCC') {
-      pinSignals.set(`${comp.id}:out`, 1);
-    } else if (comp.type === 'GND') {
-      pinSignals.set(`${comp.id}:out`, 0);
-    } else if (comp.type === 'CLOCK') {
-      pinSignals.set(`${comp.id}:out`, comp.state?.signal ?? 1);
-    } else if (comp.type === 'ESP32') {
-      pinSignals.set(`${comp.id}:GPIO4`, comp.state?.pinStates?.GPIO4 ?? 1);
-      pinSignals.set(`${comp.id}:3V3`, 1);
-      pinSignals.set(`${comp.id}:GND`, 0);
-    } else if (comp.type === 'ARDUINO') {
-      pinSignals.set(`${comp.id}:D2`, comp.state?.pinStates?.D2 ?? 1);
-      pinSignals.set(`${comp.id}:5V`, 1);
-      pinSignals.set(`${comp.id}:GND`, 0);
-    } else if (comp.type === 'LDR') {
-      pinSignals.set(`${comp.id}:out`, (comp.state?.lux ?? 500) > 200 ? 1 : 0);
-    } else if (comp.type === 'POTENTIOMETER') {
-      pinSignals.set(`${comp.id}:wiper`, (comp.state?.position ?? 50) > 50 ? 1 : 0);
+  const MAX_ITERATIONS = 16;
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    const prevStateSnapshot = JSON.stringify(room.components.map(c => c.state));
+    const pinSignals = new Map();
+
+    // 1. Initial Power & Source Nodes
+    room.components.forEach(comp => {
+      if (comp.type === 'SWITCH') {
+        pinSignals.set(`${comp.id}:out`, comp.state?.active ? 1 : 0);
+      } else if (comp.type === 'VCC') {
+        pinSignals.set(`${comp.id}:out`, 1);
+      } else if (comp.type === 'GND') {
+        pinSignals.set(`${comp.id}:out`, 0);
+      } else if (comp.type === 'CLOCK') {
+        pinSignals.set(`${comp.id}:out`, comp.state?.signal ?? 1);
+      } else if (comp.type === 'ESP32') {
+        pinSignals.set(`${comp.id}:GPIO4`, comp.state?.pinStates?.GPIO4 ?? 1);
+        pinSignals.set(`${comp.id}:3V3`, 1);
+        pinSignals.set(`${comp.id}:GND`, 0);
+      } else if (comp.type === 'ARDUINO') {
+        pinSignals.set(`${comp.id}:D2`, comp.state?.pinStates?.D2 ?? 1);
+        pinSignals.set(`${comp.id}:5V`, 1);
+        pinSignals.set(`${comp.id}:GND`, 0);
+      } else if (comp.type === 'LDR') {
+        pinSignals.set(`${comp.id}:out`, (comp.state?.lux ?? 500) > 200 ? 1 : 0);
+      } else if (comp.type === 'POTENTIOMETER') {
+        pinSignals.set(`${comp.id}:wiper`, (comp.state?.position ?? 50) > 50 ? 1 : 0);
+      }
+    });
+
+    // 2. Wire Signal Transfer across wires
+    room.wires.forEach(wire => {
+      const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
+      wire.active = signalVal === 1;
+      pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
+    });
+
+    // 3. Logic Gate & Subsystem Evaluation
+    room.components.forEach(comp => {
+      if (comp.type === 'NAND') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = !(inA === 1 && inB === 1) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'AND') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = (inA === 1 && inB === 1) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'OR') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = (inA === 1 || inB === 1) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'NOT') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const out = inA === 1 ? 0 : 1;
+        comp.state = { ...comp.state, inputA: inA, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'NOR') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = !(inA === 1 || inB === 1) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'XNOR') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = inA === inB ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'HALF_ADDER') {
+        const a = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const b = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const sum = a !== b ? 1 : 0;
+        const carry = (a === 1 && b === 1) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: a, inputB: b, sum, carry };
+        pinSignals.set(`${comp.id}:sum`, sum);
+        pinSignals.set(`${comp.id}:carry`, carry);
+      } else if (comp.type === 'FULL_ADDER') {
+        const a = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const b = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const cin = pinSignals.get(`${comp.id}:cin`) ?? 0;
+        const sum = ((a ^ b ^ cin) & 1);
+        const cout = ((a & b) | (cin & (a ^ b))) ? 1 : 0;
+        comp.state = { ...comp.state, inputA: a, inputB: b, cin, sum, cout };
+        pinSignals.set(`${comp.id}:sum`, sum);
+        pinSignals.set(`${comp.id}:cout`, cout);
+      } else if (comp.type === 'DEMUX14') {
+        const d = pinSignals.get(`${comp.id}:inData`) ?? 0;
+        const s0 = pinSignals.get(`${comp.id}:s0`) ?? 0;
+        const s1 = pinSignals.get(`${comp.id}:s1`) ?? 0;
+        const sel = (s1 << 1) | s0;
+        const y0 = sel === 0 ? d : 0;
+        const y1 = sel === 1 ? d : 0;
+        const y2 = sel === 2 ? d : 0;
+        const y3 = sel === 3 ? d : 0;
+        comp.state = { ...comp.state, inData: d, s0, s1, y0, y1, y2, y3 };
+        pinSignals.set(`${comp.id}:y0`, y0);
+        pinSignals.set(`${comp.id}:y1`, y1);
+        pinSignals.set(`${comp.id}:y2`, y2);
+        pinSignals.set(`${comp.id}:y3`, y3);
+      } else if (comp.type === 'SR_LATCH') {
+        const s = pinSignals.get(`${comp.id}:s`) ?? 0;
+        const r = pinSignals.get(`${comp.id}:r`) ?? 0;
+        let q = comp.state?.q ?? 0;
+        let qBar = comp.state?.qBar ?? 1;
+        let invalidState = false;
+
+        if (s === 1 && r === 1) {
+          q = 0;
+          qBar = 0;
+          invalidState = true;
+        } else if (s === 1 && r === 0) {
+          q = 1;
+          qBar = 0;
+        } else if (s === 0 && r === 1) {
+          q = 0;
+          qBar = 1;
+        }
+        comp.state = { ...comp.state, s, r, q, qBar, invalidState };
+        pinSignals.set(`${comp.id}:q`, q);
+        pinSignals.set(`${comp.id}:qBar`, qBar);
+      } else if (comp.type === 'SHIFT_REG_4BIT') {
+        const dataIn = pinSignals.get(`${comp.id}:dataIn`) ?? 0;
+        const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
+        const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
+        const prevClk = comp.state?.prevClk ?? 0;
+        let buffer = [...(comp.state?.buffer || [0, 0, 0, 0])];
+
+        if (reset === 1) {
+          buffer = [0, 0, 0, 0];
+        } else if (clk === 1 && prevClk === 0) {
+          buffer = [dataIn, buffer[0], buffer[1], buffer[2]];
+        }
+
+        comp.state = {
+          ...comp.state,
+          buffer,
+          prevClk: clk,
+          q0: buffer[0],
+          q1: buffer[1],
+          q2: buffer[2],
+          q3: buffer[3]
+        };
+        pinSignals.set(`${comp.id}:q0`, buffer[0]);
+        pinSignals.set(`${comp.id}:q1`, buffer[1]);
+        pinSignals.set(`${comp.id}:q2`, buffer[2]);
+        pinSignals.set(`${comp.id}:q3`, buffer[3]);
+      } else if (comp.type === 'COUNTER_4BIT') {
+        const enable = pinSignals.get(`${comp.id}:enable`) ?? 1;
+        const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
+        const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
+        const prevClk = comp.state?.prevClk ?? 0;
+        let count = comp.state?.count ?? 0;
+
+        if (reset === 1) {
+          count = 0;
+        } else if (clk === 1 && prevClk === 0 && enable === 1) {
+          count = (count + 1) % 16;
+        }
+
+        const q0 = count & 1;
+        const q1 = (count & 2) >> 1;
+        const q2 = (count & 4) >> 2;
+        const q3 = (count & 8) >> 3;
+        const overflow = count === 15 ? 1 : 0;
+
+        comp.state = { ...comp.state, count, prevClk: clk, q0, q1, q2, q3, overflow };
+        pinSignals.set(`${comp.id}:q0`, q0);
+        pinSignals.set(`${comp.id}:q1`, q1);
+        pinSignals.set(`${comp.id}:q2`, q2);
+        pinSignals.set(`${comp.id}:q3`, q3);
+        pinSignals.set(`${comp.id}:overflow`, overflow);
+      } else if (comp.type === 'XOR') {
+        const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
+        const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
+        const out = inA !== inB ? 1 : 0;
+        comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'MUX21') {
+        const i0 = pinSignals.get(`${comp.id}:i0`) ?? 0;
+        const i1 = pinSignals.get(`${comp.id}:i1`) ?? 0;
+        const sel = pinSignals.get(`${comp.id}:sel`) ?? 0;
+        const out = sel === 1 ? i1 : i0;
+        comp.state = { ...comp.state, i0, i1, sel, output: out };
+        pinSignals.set(`${comp.id}:outY`, out);
+      } else if (comp.type === 'DEC38') {
+        const a0 = pinSignals.get(`${comp.id}:a0`) ?? 0;
+        const a1 = pinSignals.get(`${comp.id}:a1`) ?? 0;
+        const a2 = pinSignals.get(`${comp.id}:a2`) ?? 0;
+        const activeLine = (a2 << 2) | (a1 << 1) | a0;
+        comp.state = { ...comp.state, activeLine };
+        for (let i = 0; i < 8; i++) {
+          const val = i === activeLine ? 1 : 0;
+          comp.state[`y${i}`] = val;
+          pinSignals.set(`${comp.id}:y${i}`, val);
+        }
+      }
+    });
+
+    // 4. Downstream Signal Transfer across wires
+    room.wires.forEach(wire => {
+      const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
+      wire.active = signalVal === 1;
+      pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
+    });
+
+    // 5. Flip-Flop, Analog & Visual Output Evaluation
+    room.components.forEach(comp => {
+      if (comp.type === 'DFF') {
+        const d = pinSignals.get(`${comp.id}:d`) ?? 0;
+        const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
+        const prevClk = comp.state?.prevClk ?? 0;
+        let q = comp.state?.q ?? 0;
+        let qBar = comp.state?.qBar ?? 1;
+
+        if (clk === 1 && prevClk === 0) { // Positive edge clock trigger
+          q = d;
+          qBar = d === 1 ? 0 : 1;
+        }
+        comp.state = { ...comp.state, d, clk, prevClk: clk, q, qBar };
+        pinSignals.set(`${comp.id}:q`, q);
+        pinSignals.set(`${comp.id}:qBar`, qBar);
+      } else if (comp.type === 'JKFF') {
+        const j = pinSignals.get(`${comp.id}:j`) ?? 0;
+        const k = pinSignals.get(`${comp.id}:k`) ?? 0;
+        const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
+        const prevClk = comp.state?.prevClk ?? 0;
+        let q = comp.state?.q ?? 0;
+        let qBar = comp.state?.qBar ?? 1;
+
+        if (clk === 1 && prevClk === 0) { // Positive edge clock trigger
+          if (j === 1 && k === 1) {
+            q = q === 1 ? 0 : 1;
+          } else if (j === 1 && k === 0) {
+            q = 1;
+          } else if (j === 0 && k === 1) {
+            q = 0;
+          }
+          qBar = q === 1 ? 0 : 1;
+        }
+        comp.state = { ...comp.state, j, k, clk, prevClk: clk, q, qBar };
+        pinSignals.set(`${comp.id}:q`, q);
+        pinSignals.set(`${comp.id}:qBar`, qBar);
+      } else if (comp.type === 'TFF') {
+        const t = pinSignals.get(`${comp.id}:t`) ?? 0;
+        const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
+        const prevClk = comp.state?.prevClk ?? 0;
+        let q = comp.state?.q ?? 0;
+        let qBar = comp.state?.qBar ?? 1;
+
+        if (clk === 1 && prevClk === 0) { // Positive edge clock trigger
+          if (t === 1) {
+            q = q === 1 ? 0 : 1;
+          }
+          qBar = q === 1 ? 0 : 1;
+        }
+        comp.state = { ...comp.state, t, clk, prevClk: clk, q, qBar };
+        pinSignals.set(`${comp.id}:q`, q);
+        pinSignals.set(`${comp.id}:qBar`, qBar);
+      } else if (comp.type === 'OPAMP') {
+        const vpos = pinSignals.get(`${comp.id}:nonInv`) ?? 0;
+        const vneg = pinSignals.get(`${comp.id}:inv`) ?? 0;
+        const out = vpos > vneg ? 1 : 0;
+        comp.state = { ...comp.state, output: out, vout: out === 1 ? 5.0 : 0.0 };
+        pinSignals.set(`${comp.id}:out`, out);
+      } else if (comp.type === 'DIODE') {
+        const anode = pinSignals.get(`${comp.id}:anode`) ?? 0;
+        const out = anode === 1 ? 1 : 0;
+        comp.state = { ...comp.state, conducting: out === 1, output: out };
+        pinSignals.set(`${comp.id}:cathode`, out);
+      } else if (comp.type === 'RESISTOR') {
+        const t1 = pinSignals.get(`${comp.id}:t1`) ?? 0;
+        comp.state = { ...comp.state, output: t1, t2: t1 };
+        pinSignals.set(`${comp.id}:t2`, t1);
+      } else if (comp.type === 'LED') {
+        const active = (pinSignals.get(`${comp.id}:in`) ?? 0) === 1;
+        comp.state = { ...comp.state, active };
+      }
+    });
+
+    const currStateSnapshot = JSON.stringify(room.components.map(c => c.state));
+    if (prevStateSnapshot === currStateSnapshot) {
+      break; // Fixed-point convergence
     }
-  });
-
-  // 2. Pass 1 Signal Transfer across wires
-  room.wires.forEach(wire => {
-    const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
-    wire.active = signalVal === 1;
-    pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
-  });
-
-  // 3. Logic Gate & Subsystem Evaluation
-  room.components.forEach(comp => {
-    if (comp.type === 'NAND') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = !(inA === 1 && inB === 1) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'AND') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = (inA === 1 && inB === 1) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'OR') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = (inA === 1 || inB === 1) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'NOT') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const out = inA === 1 ? 0 : 1;
-      comp.state = { ...comp.state, inputA: inA, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'NOR') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = !(inA === 1 || inB === 1) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'XNOR') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = inA === inB ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'HALF_ADDER') {
-      const a = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const b = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const sum = a !== b ? 1 : 0;
-      const carry = (a === 1 && b === 1) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: a, inputB: b, sum, carry };
-      pinSignals.set(`${comp.id}:sum`, sum);
-      pinSignals.set(`${comp.id}:carry`, carry);
-    } else if (comp.type === 'FULL_ADDER') {
-      const a = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const b = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const cin = pinSignals.get(`${comp.id}:cin`) ?? 0;
-      const sum = ((a ^ b ^ cin) & 1);
-      const cout = ((a & b) | (cin & (a ^ b))) ? 1 : 0;
-      comp.state = { ...comp.state, inputA: a, inputB: b, cin, sum, cout };
-      pinSignals.set(`${comp.id}:sum`, sum);
-      pinSignals.set(`${comp.id}:cout`, cout);
-    } else if (comp.type === 'DEMUX14') {
-      const d = pinSignals.get(`${comp.id}:inData`) ?? 0;
-      const s0 = pinSignals.get(`${comp.id}:s0`) ?? 0;
-      const s1 = pinSignals.get(`${comp.id}:s1`) ?? 0;
-      const sel = (s1 << 1) | s0;
-      const y0 = sel === 0 ? d : 0;
-      const y1 = sel === 1 ? d : 0;
-      const y2 = sel === 2 ? d : 0;
-      const y3 = sel === 3 ? d : 0;
-      comp.state = { ...comp.state, inData: d, s0, s1, y0, y1, y2, y3 };
-      pinSignals.set(`${comp.id}:y0`, y0);
-      pinSignals.set(`${comp.id}:y1`, y1);
-      pinSignals.set(`${comp.id}:y2`, y2);
-      pinSignals.set(`${comp.id}:y3`, y3);
-    } else if (comp.type === 'SR_LATCH') {
-      const s = pinSignals.get(`${comp.id}:s`) ?? 0;
-      const r = pinSignals.get(`${comp.id}:r`) ?? 0;
-      let q = comp.state?.q ?? 0;
-      let qBar = comp.state?.qBar ?? 1;
-      let invalidState = false;
-
-      if (s === 1 && r === 1) {
-        q = 0;
-        qBar = 0;
-        invalidState = true;
-      } else if (s === 1 && r === 0) {
-        q = 1;
-        qBar = 0;
-      } else if (s === 0 && r === 1) {
-        q = 0;
-        qBar = 1;
-      }
-      comp.state = { ...comp.state, s, r, q, qBar, invalidState };
-      pinSignals.set(`${comp.id}:q`, q);
-      pinSignals.set(`${comp.id}:qBar`, qBar);
-    } else if (comp.type === 'SHIFT_REG_4BIT') {
-      const dataIn = pinSignals.get(`${comp.id}:dataIn`) ?? 0;
-      const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
-      const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
-      const prevClk = comp.state?.prevClk ?? 0;
-      let buffer = [...(comp.state?.buffer || [0, 0, 0, 0])];
-
-      if (reset === 1) {
-        buffer = [0, 0, 0, 0];
-      } else if (clk === 1 && prevClk === 0) {
-        buffer = [dataIn, buffer[0], buffer[1], buffer[2]];
-      }
-
-      comp.state = {
-        ...comp.state,
-        buffer,
-        prevClk: clk,
-        q0: buffer[0],
-        q1: buffer[1],
-        q2: buffer[2],
-        q3: buffer[3]
-      };
-      pinSignals.set(`${comp.id}:q0`, buffer[0]);
-      pinSignals.set(`${comp.id}:q1`, buffer[1]);
-      pinSignals.set(`${comp.id}:q2`, buffer[2]);
-      pinSignals.set(`${comp.id}:q3`, buffer[3]);
-    } else if (comp.type === 'COUNTER_4BIT') {
-      const enable = pinSignals.get(`${comp.id}:enable`) ?? 1;
-      const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
-      const reset = pinSignals.get(`${comp.id}:reset`) ?? 0;
-      const prevClk = comp.state?.prevClk ?? 0;
-      let count = comp.state?.count ?? 0;
-
-      if (reset === 1) {
-        count = 0;
-      } else if (clk === 1 && prevClk === 0 && enable === 1) {
-        count = (count + 1) % 16;
-      }
-
-      const q0 = count & 1;
-      const q1 = (count & 2) >> 1;
-      const q2 = (count & 4) >> 2;
-      const q3 = (count & 8) >> 3;
-      const overflow = count === 15 ? 1 : 0;
-
-      comp.state = { ...comp.state, count, prevClk: clk, q0, q1, q2, q3, overflow };
-      pinSignals.set(`${comp.id}:q0`, q0);
-      pinSignals.set(`${comp.id}:q1`, q1);
-      pinSignals.set(`${comp.id}:q2`, q2);
-      pinSignals.set(`${comp.id}:q3`, q3);
-      pinSignals.set(`${comp.id}:overflow`, overflow);
-    } else if (comp.type === 'XOR') {
-      const inA = pinSignals.get(`${comp.id}:inA`) ?? 0;
-      const inB = pinSignals.get(`${comp.id}:inB`) ?? 0;
-      const out = inA !== inB ? 1 : 0;
-      comp.state = { ...comp.state, inputA: inA, inputB: inB, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'MUX21') {
-      const i0 = pinSignals.get(`${comp.id}:i0`) ?? 0;
-      const i1 = pinSignals.get(`${comp.id}:i1`) ?? 0;
-      const sel = pinSignals.get(`${comp.id}:sel`) ?? 0;
-      const out = sel === 1 ? i1 : i0;
-      comp.state = { ...comp.state, i0, i1, sel, output: out };
-      pinSignals.set(`${comp.id}:outY`, out);
-    } else if (comp.type === 'DEC38') {
-      const a0 = pinSignals.get(`${comp.id}:a0`) ?? 0;
-      const a1 = pinSignals.get(`${comp.id}:a1`) ?? 0;
-      const a2 = pinSignals.get(`${comp.id}:a2`) ?? 0;
-      const activeLine = (a2 << 2) | (a1 << 1) | a0;
-      comp.state = { ...comp.state, activeLine };
-      for (let i = 0; i < 8; i++) {
-        pinSignals.set(`${comp.id}:y${i}`, i === activeLine ? 1 : 0);
-      }
-    }
-  });
-
-  // 4. Pass 2 Signal Transfer for Downstream Connections
-  room.wires.forEach(wire => {
-    const signalVal = pinSignals.get(`${wire.fromCompId}:${wire.fromPin}`) ?? 0;
-    wire.active = signalVal === 1;
-    pinSignals.set(`${wire.toCompId}:${wire.toPin}`, signalVal);
-  });
-
-  // 5. Flip-Flop & Visual Output Evaluation
-  room.components.forEach(comp => {
-    if (comp.type === 'DFF') {
-      const d = pinSignals.get(`${comp.id}:d`) ?? 0;
-      const clk = pinSignals.get(`${comp.id}:clk`) ?? 0;
-      const q = clk === 1 ? d : (comp.state?.q ?? 0);
-      comp.state = { ...comp.state, d, clk, q, qBar: q === 1 ? 0 : 1 };
-      pinSignals.set(`${comp.id}:q`, comp.state.q);
-      pinSignals.set(`${comp.id}:qBar`, comp.state.qBar);
-    } else if (comp.type === 'LED') {
-      const active = (pinSignals.get(`${comp.id}:in`) ?? 0) === 1;
-      comp.state = { ...comp.state, active };
-    }
-  });
+  }
 }
 
 // Perform initial logic evaluation for default global room
@@ -1315,11 +1386,13 @@ io.on('connection', (socket) => {
     const room = getOrCreateRoom(currentRoom);
     const comp = room.components.find(c => c.id === id);
     if (comp) {
-      if (statePayload) {
+      if (statePayload && typeof statePayload === 'object') {
         comp.state = { ...comp.state, ...statePayload };
       } else if (comp.type === 'SWITCH') {
-        comp.state.active = !comp.state.active;
+        const nextActive = !comp.state?.active;
+        comp.state = { ...comp.state, active: nextActive, output: nextActive ? 1 : 0 };
       } else if (comp.type === 'ESP32') {
+        if (!comp.state) comp.state = {};
         if (!comp.state.pinStates) comp.state.pinStates = {};
         comp.state.pinStates.GPIO4 = comp.state.pinStates.GPIO4 === 1 ? 0 : 1;
       }

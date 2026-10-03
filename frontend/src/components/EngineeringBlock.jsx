@@ -191,7 +191,14 @@ export default function EngineeringBlock({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleState(component.id);
+                  const currentGpio4 = component.state.pinStates?.GPIO4 ?? 1;
+                  const nextGpio4 = currentGpio4 === 1 ? 0 : 1;
+                  onToggleState(component.id, {
+                    pinStates: {
+                      ...(component.state.pinStates || {}),
+                      GPIO4: nextGpio4
+                    }
+                  });
                 }}
                 className="interactive-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-mono text-cyan-400 transition"
               >
@@ -318,7 +325,18 @@ export default function EngineeringBlock({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleState(component.id);
+                  const curBuf = component.state.buffer || [0, 0, 0, 0];
+                  const dataIn = component.state.dataIn ?? 0;
+                  const newBuf = [dataIn, curBuf[0], curBuf[1], curBuf[2]];
+                  onToggleState(component.id, {
+                    buffer: newBuf,
+                    clk: 1,
+                    prevClk: 0,
+                    q0: newBuf[0],
+                    q1: newBuf[1],
+                    q2: newBuf[2],
+                    q3: newBuf[3]
+                  });
                 }}
                 className="interactive-btn px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px]"
               >
@@ -369,7 +387,30 @@ export default function EngineeringBlock({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleState(component.id);
+                  let q = component.state.q ?? 0;
+                  if (component.type === 'JKFF') {
+                    const j = component.state.j ?? 0;
+                    const k = component.state.k ?? 0;
+                    if (j === 1 && k === 1) {
+                      q = q === 1 ? 0 : 1;
+                    } else if (j === 1 && k === 0) {
+                      q = 1;
+                    } else if (j === 0 && k === 1) {
+                      q = 0;
+                    }
+                  } else if (component.type === 'TFF') {
+                    const t = component.state.t ?? 0;
+                    if (t === 1) {
+                      q = q === 1 ? 0 : 1;
+                    }
+                  }
+                  const qBar = q === 1 ? 0 : 1;
+                  onToggleState(component.id, {
+                    clk: 1,
+                    prevClk: 0,
+                    q,
+                    qBar
+                  });
                 }}
                 className="interactive-btn px-2 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-[10px] font-mono flex items-center space-x-1 transition"
               >
@@ -464,8 +505,11 @@ export default function EngineeringBlock({
               onChange={(e) => {
                 e.stopPropagation();
                 const val = parseInt(e.target.value, 10);
-                component.state.position = val;
-                onToggleState(component.id);
+                onToggleState(component.id, {
+                  position: val,
+                  wiper: val > 50 ? 1 : 0,
+                  outputVoltage: Number(((val / 100) * 5.0).toFixed(2))
+                });
               }}
               className="interactive-btn w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
             />
@@ -497,7 +541,10 @@ export default function EngineeringBlock({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onToggleState(component.id);
+                onToggleState(component.id, {
+                  active: !clkActive,
+                  signal: !clkActive ? 1 : 0
+                });
               }}
               className="interactive-btn px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[10px]"
             >
@@ -536,8 +583,11 @@ export default function EngineeringBlock({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                component.state.lux = lux === 500 ? 50 : 500;
-                onToggleState(component.id);
+                const nextLux = lux === 500 ? 50 : 500;
+                onToggleState(component.id, {
+                  lux: nextLux,
+                  out: nextLux > 200 ? 1 : 0
+                });
               }}
               className="interactive-btn w-full py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] text-center"
             >
@@ -573,8 +623,10 @@ export default function EngineeringBlock({
               value={angle}
               onChange={(e) => {
                 e.stopPropagation();
-                component.state.angle = parseInt(e.target.value, 10);
-                onToggleState(component.id);
+                const newAngle = parseInt(e.target.value, 10);
+                onToggleState(component.id, {
+                  angle: newAngle
+                });
               }}
               className="interactive-btn w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
             />
@@ -594,7 +646,13 @@ export default function EngineeringBlock({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleState(component.id);
+                  const dVal = component.state.d ?? 0;
+                  onToggleState(component.id, {
+                    clk: 1,
+                    prevClk: 0,
+                    q: dVal,
+                    qBar: dVal === 1 ? 0 : 1
+                  });
                 }}
                 className="interactive-btn px-2 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-[10px] font-mono flex items-center space-x-1 transition"
                 title="Pulse Clock Signal"
@@ -624,7 +682,10 @@ export default function EngineeringBlock({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onToggleState(component.id);
+                onToggleState(component.id, {
+                  active: !isActive,
+                  output: !isActive ? 1 : 0
+                });
               }}
               className={`interactive-btn p-1 rounded-lg transition-colors ${
                 isActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-500 hover:text-slate-400'

@@ -480,9 +480,35 @@ export const COMPONENT_REGISTRY = {
       { id: 'y0', name: 'Y0', type: 'digital', direction: 'output' },
       { id: 'y1', name: 'Y1', type: 'digital', direction: 'output' },
       { id: 'y2', name: 'Y2', type: 'digital', direction: 'output' },
-      { id: 'y3', name: 'Y3', type: 'digital', direction: 'output' }
+      { id: 'y3', name: 'Y3', type: 'digital', direction: 'output' },
+      { id: 'y4', name: 'Y4', type: 'digital', direction: 'output' },
+      { id: 'y5', name: 'Y5', type: 'digital', direction: 'output' },
+      { id: 'y6', name: 'Y6', type: 'digital', direction: 'output' },
+      { id: 'y7', name: 'Y7', type: 'digital', direction: 'output' }
     ],
-    defaultState: { activeLine: 0 }
+    defaultState: {
+      activeLine: 0,
+      y0: 1, y1: 0, y2: 0, y3: 0,
+      y4: 0, y5: 0, y6: 0, y7: 0
+    },
+    calculateState: (inputs) => {
+      const a0 = inputs.a0 ?? 0;
+      const a1 = inputs.a1 ?? 0;
+      const a2 = inputs.a2 ?? 0;
+      const activeLine = (a2 << 2) | (a1 << 1) | a0;
+      return {
+        a0, a1, a2,
+        activeLine,
+        y0: activeLine === 0 ? 1 : 0,
+        y1: activeLine === 1 ? 1 : 0,
+        y2: activeLine === 2 ? 1 : 0,
+        y3: activeLine === 3 ? 1 : 0,
+        y4: activeLine === 4 ? 1 : 0,
+        y5: activeLine === 5 ? 1 : 0,
+        y6: activeLine === 6 ? 1 : 0,
+        y7: activeLine === 7 ? 1 : 0
+      };
+    }
   },
 
   // --- ANALOG & SEMICONDUCTORS ---
@@ -500,7 +526,38 @@ export const COMPONENT_REGISTRY = {
       { id: 'vee', name: 'VEE (-)', type: 'power', direction: 'input' },
       { id: 'out', name: 'VOUT', type: 'analog', direction: 'output' }
     ],
-    defaultState: { gain: 10, vout: 5.0, saturated: false }
+    defaultState: { gain: 100, vout: 0.0, output: 0, saturated: false },
+    calculateState: (inputs, currentState) => {
+      const vpos = typeof inputs.nonInv === 'number' ? inputs.nonInv : (inputs.nonInv ? 5.0 : 0.0);
+      const vneg = typeof inputs.inv === 'number' ? inputs.inv : (inputs.inv ? 5.0 : 0.0);
+      const vcc = inputs.vcc !== undefined ? (typeof inputs.vcc === 'number' ? inputs.vcc : (inputs.vcc ? 5.0 : 0.0)) : 5.0;
+      const vee = inputs.vee !== undefined ? (typeof inputs.vee === 'number' ? inputs.vee : (inputs.vee ? 5.0 : 0.0)) : 0.0;
+      const gain = currentState?.gain ?? 100;
+
+      const diff = vpos - vneg;
+      const rawVout = diff * gain;
+
+      let vout = rawVout;
+      let saturated = false;
+      if (rawVout >= vcc) {
+        vout = vcc;
+        saturated = true;
+      } else if (rawVout <= vee) {
+        vout = vee;
+        saturated = true;
+      }
+
+      const output = vout >= (vcc + vee) / 2 ? 1 : 0;
+      return {
+        ...currentState,
+        gain,
+        vpos,
+        vneg,
+        vout: Number(vout.toFixed(2)),
+        output,
+        saturated
+      };
+    }
   },
   DIODE: {
     type: 'DIODE',
@@ -513,7 +570,28 @@ export const COMPONENT_REGISTRY = {
       { id: 'anode', name: 'A (Anode)', type: 'analog', direction: 'input' },
       { id: 'cathode', name: 'K (Cathode)', type: 'analog', direction: 'output' }
     ],
-    defaultState: { conducting: false, vf: '0.7V' }
+    defaultState: { conducting: false, vf: '0.7V', output: 0, cathodeVoltage: 0.0 },
+    calculateState: (inputs, currentState) => {
+      const anodeVal = inputs.anode ?? 0;
+      const cathodeVal = inputs.cathode ?? 0;
+      const vAnode = typeof anodeVal === 'number' ? (anodeVal === 1 ? 5.0 : anodeVal) : (anodeVal ? 5.0 : 0.0);
+      const vCathode = typeof cathodeVal === 'number' ? (cathodeVal === 1 ? 5.0 : cathodeVal) : (cathodeVal ? 5.0 : 0.0);
+      const forwardDrop = 0.7;
+
+      const isForwardBiased = (vAnode - vCathode) >= forwardDrop || (anodeVal === 1 && cathodeVal === 0);
+      const conducting = isForwardBiased && vAnode > 0;
+      const cathodeVoltage = conducting ? Math.max(0, vAnode - forwardDrop) : 0.0;
+      const output = conducting && cathodeVoltage >= 2.0 ? 1 : 0;
+
+      return {
+        ...currentState,
+        conducting,
+        anodeVoltage: vAnode,
+        cathodeVoltage: Number(cathodeVoltage.toFixed(2)),
+        output,
+        vf: '0.7V'
+      };
+    }
   },
   NPN: {
     type: 'NPN',
@@ -639,7 +717,21 @@ export const COMPONENT_REGISTRY = {
       { id: 't1', name: 'T1', type: 'passive', direction: 'input' },
       { id: 't2', name: 'T2', type: 'passive', direction: 'output' }
     ],
-    defaultState: { resistance: '10kΩ', voltageDrop: 0.5 }
+    defaultState: { resistance: '10kΩ', voltageDrop: 0.0, output: 0 },
+    calculateState: (inputs, currentState) => {
+      const t1 = inputs.t1 ?? 0;
+      const inVoltage = typeof t1 === 'number' ? (t1 === 1 ? 5.0 : t1) : (t1 ? 5.0 : 0.0);
+      const output = t1 === 1 || inVoltage >= 2.5 ? 1 : 0;
+      return {
+        ...currentState,
+        t1,
+        output,
+        t2: output,
+        inVoltage,
+        outVoltage: inVoltage,
+        voltageDrop: 0.0
+      };
+    }
   },
   SWITCH: {
     type: 'SWITCH',
@@ -766,6 +858,35 @@ export const COMPONENT_REGISTRY = {
     }
   }
 };
+
+/**
+ * Detects wire conflicts / short-circuits when opposing logic levels (e.g. 1 and 0) drive the same node
+ */
+export function detectNodeConflicts(wires = [], getPinOutputValue = () => 0) {
+  const pinDrivers = new Map();
+  const conflictingNodeKeys = new Set();
+  const conflictingWireIds = new Set();
+
+  wires.forEach((w) => {
+    const targetKey = `${w.toCompId}:${w.toPin}`;
+    const signalVal = getPinOutputValue(w.fromCompId, w.fromPin);
+    if (!pinDrivers.has(targetKey)) {
+      pinDrivers.set(targetKey, []);
+    }
+    pinDrivers.get(targetKey).push({ wireId: w.id, val: signalVal });
+  });
+
+  pinDrivers.forEach((drivers, targetKey) => {
+    const hasHigh = drivers.some(d => d.val === 1);
+    const hasLow = drivers.some(d => d.val === 0);
+    if (hasHigh && hasLow && drivers.length > 1) {
+      conflictingNodeKeys.add(targetKey);
+      drivers.forEach(d => conflictingWireIds.add(d.wireId));
+    }
+  });
+
+  return { conflictingNodeKeys, conflictingWireIds };
+}
 
 export function createComponentInstance(componentType, customX, customY) {
   const template = COMPONENT_REGISTRY[componentType] || COMPONENT_REGISTRY.NAND;
