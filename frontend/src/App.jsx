@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Routes, Route, useParams, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { socket } from './services/socket';
@@ -10,7 +10,6 @@ import UserPresence from './components/UserPresence';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
 import CodeEditorPanel from './components/CodeEditorPanel';
-import AIAssistant from './components/AIAssistant';
 import AuthModal from './components/AuthModal';
 import ProjectsModal from './components/ProjectsModal';
 import SettingsModal from './components/SettingsModal';
@@ -106,8 +105,12 @@ export default function App() {
       setIsConnected(true);
       setMyUser(data.myUser);
       setUsers(data.users || []);
-      setComponents(data.components || []);
-      setWires(data.wires || []);
+      if (Array.isArray(data.components)) {
+        setComponents(data.components);
+      }
+      if (Array.isArray(data.wires)) {
+        setWires(data.wires);
+      }
       setLocks(data.locks || {});
     }
 
@@ -303,8 +306,8 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem('syncarch_token');
 
-    // Always update local draft backup instantly
-    if (components.length > 0 || wires.length > 0 || currentProjectId) {
+    // Always update local draft backup instantly if canvas has content
+    if (components.length > 0 || wires.length > 0) {
       try {
         localStorage.setItem('syncarch_draft_canvas', JSON.stringify({
           currentProjectId,
@@ -316,11 +319,13 @@ export default function App() {
     }
 
     if (!token || !authUser) return;
-    if (components.length === 0 && wires.length === 0 && !currentProjectId) return;
+    // ABSOLUTE GUARD: Never execute auto-save if canvas is completely empty (prevents database record wiping)
+    if (components.length === 0 && wires.length === 0) return;
 
     // Silent background auto-save to backend database (1.5s debounce)
     const timer = setTimeout(async () => {
       try {
+        if (components.length === 0 && wires.length === 0) return;
         const circuitPayload = { components, wires };
         if (currentProjectId) {
           await fetch(`${API_BASE_URL}/api/projects/${currentProjectId}`, {
@@ -348,7 +353,7 @@ export default function App() {
           });
           const data = await res.json();
           if (data.projectId) {
-            setCurrentProjectId(data.projectId);
+            setCurrentProjectId(String(data.projectId));
           }
         }
       } catch (err) {
@@ -556,6 +561,19 @@ export default function App() {
     });
   }, [wires]);
 
+  const handleClearCanvas = useCallback(() => {
+    setComponents([]);
+    setWires([]);
+    setCurrentProjectId(null);
+    setProjectTitle('My ECE Lab Circuit');
+    try {
+      localStorage.removeItem('syncarch_draft_canvas');
+    } catch (e) {}
+    socket.emit('canvas:sync', { components: [], wires: [] });
+    setToastMessage({ type: 'info', text: 'Canvas cleared' });
+    setTimeout(() => setToastMessage(null), 2500);
+  }, []);
+
   const handleSaveCode = useCallback((id, code) => {
     setComponents((prev) =>
       prev.map((c) =>
@@ -692,25 +710,29 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load project details');
 
-      const projectData = data.project;
+      const projectData = data.project || data;
       if (projectData) {
         if (projectData.title) {
           setProjectTitle(projectData.title);
         }
-        if (projectData.circuit_data) {
-          const parsed = typeof projectData.circuit_data === 'string' ? JSON.parse(projectData.circuit_data) : projectData.circuit_data;
-          const loadedComps = parsed.components || [];
-          const loadedWires = parsed.wires || [];
+        const rawCircuit = projectData.circuit_data || projectData.circuitData;
+        if (rawCircuit) {
+          const fetchedData = typeof rawCircuit === 'string' ? JSON.parse(rawCircuit) : rawCircuit;
+          const loadedComps = fetchedData.components || [];
+          const loadedWires = fetchedData.wires || [];
 
           setComponents(loadedComps);
           setWires(loadedWires);
-          setCurrentProjectId(id);
+          setCurrentProjectId(String(id));
           setIsProjectsModalOpen(false);
 
-          // Sync loaded canvas to all connected users
-          socket.emit('canvas:sync', { components: loadedComps, wires: loadedWires });
+          // Push loaded data directly to the Socket.io room so server room state is populated
+          // and broadcast to all collaborators in the room
+          const targetRoom = `sync-${id}`;
+          socket.emit('room:join', { roomId: targetRoom });
+          socket.emit('canvas:sync', { components: fetchedData.components || loadedComps, wires: fetchedData.wires || loadedWires });
 
-          setToastMessage({ type: 'success', text: `Loaded "${projectData.title}" onto canvas!` });
+          setToastMessage({ type: 'success', text: `Loaded "${projectData.title || 'Circuit'}" onto canvas!` });
           setTimeout(() => setToastMessage(null), 3000);
         }
       }
@@ -988,6 +1010,7 @@ export default function App() {
                         onUpdatePinNetLabel={handleUpdatePinNetLabel}
                         onCreateSubcircuit={handleCreateSubcircuit}
                         onOpenSubcircuit={(comp) => setActiveSubcircuitModalComp(comp)}
+                        onClearCanvas={handleClearCanvas}
                         settings={settings}
                       />
 
@@ -1006,8 +1029,6 @@ export default function App() {
                           projectTitle={projectTitle}
                         />
                       )}
-
-                      <AIAssistant components={components} wires={wires} settings={settings} />
                     </motion.div>
                   </LabView>
                 </ProtectedRoute>
@@ -1059,6 +1080,7 @@ export default function App() {
         onRestoreCanvas={(restoredComps, restoredWires) => {
           setComponents(restoredComps);
           setWires(restoredWires);
+          socket.emit('canvas:sync', { components: restoredComps, wires: restoredWires });
         }}
         onToast={(msg) => {
           setToastMessage({ type: 'success', text: msg });
@@ -1088,6 +1110,7 @@ function ProtectedRoute({ authUser, onOpenAuth, children }) {
 function LabView({ handleSelectProject, currentProjectId, children }) {
   const { projectId, roomId } = useParams();
   const targetRoomId = roomId || (projectId ? `sync-${projectId}` : 'default');
+  const inFlightFetchIdRef = useRef(null);
 
   useEffect(() => {
     if (socket.connected) {
@@ -1108,10 +1131,17 @@ function LabView({ handleSelectProject, currentProjectId, children }) {
 
     // Strip non-numeric prefixes (e.g. 'sync-lab-1' or 'lab-1' -> '1') so string project slugs don't evaluate to NaN and fail to load
     const numericSuffixMatch = rawId.match(/^.*?(\d+)$/);
-    const effectiveId = numericSuffixMatch ? numericSuffixMatch[1] : rawId;
+    const effectiveId = numericSuffixMatch ? String(numericSuffixMatch[1]) : String(rawId);
 
-    if (effectiveId && String(effectiveId) !== String(currentProjectId)) {
-      handleSelectProject(effectiveId);
+    if (
+      effectiveId &&
+      String(effectiveId) !== String(currentProjectId) &&
+      inFlightFetchIdRef.current !== String(effectiveId)
+    ) {
+      inFlightFetchIdRef.current = String(effectiveId);
+      Promise.resolve(handleSelectProject(effectiveId)).finally(() => {
+        inFlightFetchIdRef.current = null;
+      });
     }
   }, [projectId, roomId, currentProjectId, handleSelectProject]);
 

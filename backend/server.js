@@ -8,7 +8,6 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -668,75 +667,6 @@ app.post('/api/community/projects/:id/clone', verifyToken, (req, res) => {
   });
 });
 
-// GET /api/chat/history - Retrieve persistent chat messages
-app.get('/api/chat/history', (req, res) => {
-  db.all('SELECT * FROM messages ORDER BY created_at ASC', [], (err, rows) => {
-    if (err) {
-      console.error('Error fetching chat history:', err.message);
-      return res.status(500).json({ error: 'Failed to retrieve chat history' });
-    }
-    return res.json({ messages: rows });
-  });
-});
-
-// POST /api/chat - AI Assistant endpoint with SQLite Persistence & Gemini 1.5 Flash
-app.post('/api/chat', async (req, res) => {
-  try {
-    const messageText = req.body.prompt || req.body.message;
-    if (!messageText) {
-      return res.status(400).json({ error: 'Message or prompt is required' });
-    }
-
-    const { components = [], wires = [] } = req.body;
-
-    // Save user message to SQLite
-    db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['user', messageText], (err) => {
-      if (err) console.error('Failed to persist user message:', err.message);
-    });
-
-    const apiKey = req.headers['x-custom-api-key'] || req.body.customApiKey || process.env.AI_API_KEY || process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      const fallbackMsg = "⚠️ AI_API_KEY is missing in backend .env file. Please add your Gemini API key to backend/.env (e.g., AI_API_KEY=...) to enable live AI responses!";
-      db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['ai', fallbackMsg]);
-      return res.json({ response: fallbackMsg });
-    }
-
-    // Format schematic context
-    let contextPrompt = '';
-    if (components.length > 0 || wires.length > 0) {
-      const compSummary = components
-        .map((c) => `- ${c.label || c.type} (${c.type}, ID: ${c.id}) at (${c.x}, ${c.y}) [State: ${JSON.stringify(c.state || {})}]`)
-        .join('\n');
-      const wireSummary = wires
-        .map((w) => `- Wire from ${w.fromCompId}:${w.fromPin} to ${w.toCompId}:${w.toPin}`)
-        .join('\n');
-      contextPrompt = `\nCurrent Circuit Schematic Context:\nActive Components (${components.length}):\n${compSummary}\nActive Wires (${wires.length}):\n${wireSummary}\n`;
-    }
-
-    const systemInstruction = "You are an expert Electrical & Computer Engineering (ECE) assistant and circuit designer in SyncArch. Analyze the user's circuit and question, and provide accurate, actionable technical guidance.";
-    const fullPrompt = `${systemInstruction}\n${contextPrompt}\nUser Query: ${messageText}`;
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-    const result = await model.generateContent(fullPrompt);
-    const response = await result.response;
-    const responseText = response.text() || 'No response text received from Gemini API.';
-
-    // Save AI response message to SQLite
-    db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['ai', responseText], (err) => {
-      if (err) console.error('Failed to persist AI response message:', err.message);
-    });
-
-    return res.json({ response: responseText });
-  } catch (err) {
-    console.error('AI Route Error:', err.message);
-    const errText = `⚠️ AI Service Error: ${err.message}`;
-    db.run('INSERT INTO messages (role, text) VALUES (?, ?)', ['ai', errText]);
-    return res.status(500).json({ response: errText });
-  }
-});
-
 // User palette of vibrant colors for cursor / lock indicators
 const USER_COLORS = [
   '#38bdf8', // Neon Sky
@@ -1251,19 +1181,45 @@ io.on('connection', (socket) => {
     userInfo.roomId = targetRoom;
     socket.join(targetRoom);
 
+    const roomExists = rooms.has(targetRoom);
     const room = getOrCreateRoom(targetRoom);
-    const currentRoomUsers = Array.from(users.values()).filter(u => u.roomId === targetRoom);
-    io.to(targetRoom).emit('room:users', { roomId: targetRoom, users: currentRoomUsers });
 
-    socket.emit('init:state', {
-      myUser: userInfo,
-      users: currentRoomUsers,
-      components: room.components,
-      wires: room.wires,
-      locks: serializeLocks(room.locks)
-    });
+    const emitInitState = () => {
+      const currentRoomUsers = Array.from(users.values()).filter(u => u.roomId === targetRoom);
+      io.to(targetRoom).emit('room:users', { roomId: targetRoom, users: currentRoomUsers });
 
-    console.log(`[Room] ${userInfo.name} joined room "${targetRoom}". Room user count: ${currentRoomUsers.length}`);
+      socket.emit('init:state', {
+        myUser: userInfo,
+        users: currentRoomUsers,
+        components: room.components,
+        wires: room.wires,
+        locks: serializeLocks(room.locks)
+      });
+
+      console.log(`[Room] ${userInfo.name} joined room "${targetRoom}". Room user count: ${currentRoomUsers.length}, components: ${room.components.length}`);
+    };
+
+    const syncMatch = targetRoom.match(/^sync-(\d+)$/);
+    if (syncMatch && !roomExists) {
+      const projectId = syncMatch[1];
+      db.get('SELECT circuit_data FROM projects WHERE id = ?', [projectId], (err, row) => {
+        if (!err && row && row.circuit_data) {
+          try {
+            const parsed = typeof row.circuit_data === 'string' ? JSON.parse(row.circuit_data) : row.circuit_data;
+            if (parsed && Array.isArray(parsed.components)) {
+              room.components = parsed.components;
+              room.wires = Array.isArray(parsed.wires) ? parsed.wires : [];
+              reevaluateLogic(room);
+            }
+          } catch (parseErr) {
+            console.warn(`[Room Rehydrate] Error parsing circuit_data for project ${projectId}:`, parseErr.message);
+          }
+        }
+        emitInitState();
+      });
+    } else {
+      emitInitState();
+    }
   });
 
   // 0. User Profile Identification & Sync

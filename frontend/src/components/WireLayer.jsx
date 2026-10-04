@@ -1,41 +1,42 @@
 import React from 'react';
 
-export default function WireLayer({ components, wires, activeWireSource, mousePos, onDeleteWire, scale = 1.0, settings }) {
+export default function WireLayer({ components, wires, activeWireSource, mousePos, onDeleteWire, scale = 1.0, pan = { x: 0, y: 0 }, settings }) {
   const isGlowEnabled = settings?.animationGlow ?? true;
   const currentTheme = settings?.theme || 'dark';
 
   const activeStrokeColor = currentTheme === 'cyberpunk' ? '#f43f5e' : (currentTheme === 'pcb' ? '#f59e0b' : '#38bdf8');
   const inactiveStrokeColor = currentTheme === 'cyberpunk' ? '#475569' : (currentTheme === 'pcb' ? '#047857' : '#64748b');
 
-// Calculate internal content height based on component block type
-const getComponentContentHeight = (type) => {
-  switch (type) {
-    case 'OLED12864':
-      return 138;
-    case 'LCD1602':
-      return 103;
-    case 'SHIFT_REG_4BIT':
-    case 'COUNTER_4BIT':
-      return 84;
-    case 'JKFF':
-    case 'TFF':
-    case 'DFF':
-    case 'SR_LATCH':
-      return 70;
-    case 'SERVO':
-    case 'LDR':
-      return 66;
-    case 'ESP32':
-      return 64;
-    case 'POTENTIOMETER':
-      return 62;
-    default:
-      return 52;
-  }
-};
-
-  // Pure mathematical geometry derived from grid coordinates and pin indices (Zero DOM layout thrashing)
+  // DOM-Based Pin Tracking with Exact Screen-to-World Translation & Mathematical Fallback
   const getPinCoords = (compId, pinId) => {
+    // 1. Locate physical pin element in DOM and compute exact world coordinates
+    if (typeof document !== 'undefined') {
+      const pinEl = document.getElementById(`pin-${compId}-${pinId}`) ||
+                    document.querySelector(`[data-pin-id="${compId}:${pinId}"]`);
+      if (pinEl && typeof pinEl.getBoundingClientRect === 'function') {
+        const pinRect = pinEl.getBoundingClientRect();
+        if (pinRect.width > 0 && pinRect.height > 0) {
+          const screenX = pinRect.left + pinRect.width / 2;
+          const screenY = pinRect.top + pinRect.height / 2;
+
+          const canvasContainer = pinEl.closest('.canvas-grid') || document.querySelector('.canvas-grid');
+          const containerRect = canvasContainer
+            ? canvasContainer.getBoundingClientRect()
+            : { left: 0, top: 0 };
+
+          const currentScale = scale || 1.0;
+          const panX = pan?.x ?? 0;
+          const panY = pan?.y ?? 0;
+
+          const worldX = Math.round((screenX - containerRect.left - panX) / currentScale);
+          const worldY = Math.round((screenY - containerRect.top - panY) / currentScale);
+
+          return { x: worldX, y: worldY };
+        }
+      }
+    }
+
+    // 2. Mathematical Fallback: if DOM element is unmounted or in headless/test environment
     const comp = components.find(c => c.id === compId);
     if (!comp) return { x: 0, y: 0 };
 
@@ -47,33 +48,20 @@ const getComponentContentHeight = (type) => {
     const pinIndex = sameDirectionPins.findIndex(p => p.id === pinId);
     const safePinIndex = pinIndex >= 0 ? pinIndex : 0;
 
-    // Horizontal geometry:
-    // Container: w-72 (288px), p-4 (16px padding)
-    // Input pin circle center: comp.x + 16 (pad) + 7 (radius) = comp.x + 23
-    // Output pin circle center: comp.x + 288 - 16 - 7 = comp.x + 265
     const rawX = isOutput ? comp.x + 265 : comp.x + 23;
-
-    // Vertical geometry:
-    // Header (~61px) + internal content + divider section (~21px) = 82 + contentH
-    // Each pin row has 14px circle centered in 16px row (pitch 24px)
-    const contentH = getComponentContentHeight(comp.type);
-    const pinsTop = 82 + contentH;
-    const rawY = comp.y + pinsTop + 8 + (safePinIndex * 24);
+    const rawY = comp.y + 64 + (safePinIndex * 24);
 
     const rot = comp.rotation || 0;
     if (!rot) return { x: rawX, y: rawY };
 
-    // Dynamic component height based on pin count and block type
     const inputCount = (comp.pins || []).filter(p => p.direction === 'input').length;
     const outputCount = (comp.pins || []).filter(p => p.direction === 'output').length;
     const maxPins = Math.max(inputCount, outputCount, 1);
     const compW = 288;
-    const compH = pinsTop + (maxPins * 24) + 16;
+    const compH = 64 + (maxPins * 24) + 16;
 
-    // Center of rotation (CSS transform-origin: 50% 50%)
     const cx = comp.x + compW / 2;
     const cy = comp.y + compH / 2;
-
     const rad = (rot * Math.PI) / 180;
     const dx = rawX - cx;
     const dy = rawY - cy;

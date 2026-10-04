@@ -5,7 +5,6 @@ import {
   Zap, 
   Cpu, 
   Users, 
-  Bot, 
   FolderKanban, 
   ArrowRight, 
   Sparkles, 
@@ -124,8 +123,6 @@ export default function LandingPage({ authUser, onOpenAuth }) {
               <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
             </span>
             <span>v1.0 Real-Time ECE Engine</span>
-            <span className="text-slate-500">|</span>
-            <span className="text-indigo-300 font-mono text-[11px]">Gemini 3.6 Copilot</span>
           </motion.div>
         </div>
 
@@ -348,11 +345,11 @@ export default function LandingPage({ authUser, onOpenAuth }) {
             className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-indigo-500/40 transition duration-300 backdrop-blur-sm space-y-4"
           >
             <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <Bot className="w-6 h-6" />
+              <Cpu className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-100">Circuit AI Copilot</h3>
+            <h3 className="text-lg font-semibold text-slate-100">Interactive Circuit Simulation</h3>
             <p className="text-sm text-slate-400 leading-relaxed">
-              Ask Gemini 3.6 Flash to debug logic paths, calculate resistor values, or write micro-code for ESP32 and Arduino microcontrollers directly on the canvas.
+              Real-time multi-level logic evaluation with zero-delay propagation, subcircuit hierarchy encapsulation, and live oscilloscope signal visualization.
             </p>
           </motion.div>
 

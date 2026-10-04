@@ -7,7 +7,7 @@ import OscilloscopeDrawer from './OscilloscopeDrawer';
 import MiniMap from './MiniMap';
 import ContextMenu from './ContextMenu';
 import { evaluateCircuitTopology } from '../utils/logicEvaluator';
-import { ZoomIn, ZoomOut, RotateCcw, Move, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Move, Layers, Trash2 } from 'lucide-react';
 
 export default function Canvas({
   components,
@@ -29,6 +29,7 @@ export default function Canvas({
   onUpdatePinNetLabel,
   onCreateSubcircuit,
   onOpenSubcircuit,
+  onClearCanvas,
   settings
 }) {
   const containerRef = useRef(null);
@@ -143,33 +144,6 @@ export default function Canvas({
 
   // Helper to translate screen mouse coordinates (e.clientX, e.clientY) into exact canvas world coordinates
   const getCanvasCoordinates = (e) => {
-    // 1. SVG CTM Translation: If drawing layer SVG exists, map screen coordinates via getScreenCTM().inverse()
-    if (containerRef.current) {
-      const svgEl = containerRef.current.querySelector('svg');
-      if (svgEl && typeof svgEl.getScreenCTM === 'function') {
-        try {
-          const ctm = svgEl.getScreenCTM();
-          if (ctm) {
-            const inverseCTM = ctm.inverse();
-            if (typeof svgEl.createSVGPoint === 'function') {
-              const pt = svgEl.createSVGPoint();
-              pt.x = e.clientX;
-              pt.y = e.clientY;
-              const svgPt = pt.matrixTransform(inverseCTM);
-              if (Number.isFinite(svgPt.x) && Number.isFinite(svgPt.y)) {
-                return { x: svgPt.x, y: svgPt.y };
-              }
-            }
-          }
-        } catch (err) {
-          // Fallback if SVG CTM matrix transformation fails
-        }
-      }
-    }
-
-    // 2. Container Bounding Rect & Scale / Pan Factor Offset Calculation:
-    // Subtract container left and top values from mouse e.clientX / e.clientY
-    // and divide by active scale/zoom factor.
     const rect = containerRef.current
       ? containerRef.current.getBoundingClientRect()
       : { left: 0, top: 0 };
@@ -260,6 +234,8 @@ export default function Canvas({
         };
         onAddWire(newWire);
         setActiveWireSource(null);
+      } else if (activeWireSource.compId === compId && activeWireSource.pinId === pinId && direction === 'output') {
+        // Keep active when clicking same pin (supports both click and mousedown drag)
       } else {
         setActiveWireSource(null);
       }
@@ -310,6 +286,7 @@ export default function Canvas({
           mousePos={mousePos}
           onDeleteWire={onDeleteWire}
           scale={scale}
+          pan={pan}
           settings={settings}
         />
 
@@ -438,6 +415,17 @@ export default function Canvas({
         >
           <RotateCcw className="w-3 h-3" />
           <span>Reset View</span>
+        </button>
+        <div className="w-px h-4 bg-slate-800 mx-1"></div>
+        <button
+          onClick={() => {
+            if (onClearCanvas) onClearCanvas();
+          }}
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 font-sans text-[11px] font-medium transition cursor-pointer shadow-sm shadow-rose-950/20"
+          title="Clear Entire Canvas (Remove All Components & Wires)"
+        >
+          <Trash2 className="w-3 h-3 text-rose-400" />
+          <span>Clear Canvas</span>
         </button>
       </div>
 

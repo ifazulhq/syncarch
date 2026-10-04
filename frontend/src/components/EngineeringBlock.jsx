@@ -953,9 +953,16 @@ export default function EngineeringBlock({
                     e.stopPropagation();
                     onPinClick(component.id, pin.id, 'input');
                   }}
+                  onMouseUp={(e) => {
+                    e.stopPropagation();
+                    if (activeWireSource) {
+                      onPinClick(component.id, pin.id, 'input');
+                    }
+                  }}
                   className="pin-node flex items-center space-x-2 group cursor-pointer"
                 >
                   <div
+                    id={`pin-${component.id}-${pin.id}`}
                     data-pin-id={`${component.id}:${pin.id}`}
                     className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
                       isConnecting 
@@ -1080,6 +1087,12 @@ export default function EngineeringBlock({
             return (
               <div key={pin.id} className="relative flex flex-col items-end">
                 <div
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    if (e.button === 0 && !activeWireSource) {
+                      onPinClick(component.id, pin.id, 'output');
+                    }
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onPinClick(component.id, pin.id, 'output');
@@ -1119,6 +1132,7 @@ export default function EngineeringBlock({
                     {pin.name}
                   </span>
                   <div
+                    id={`pin-${component.id}-${pin.id}`}
                     data-pin-id={`${component.id}:${pin.id}`}
                     className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
                       isConnecting 

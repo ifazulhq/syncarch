@@ -377,31 +377,6 @@ export default function SettingsModal({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800">
-                  <h4 className="text-xs font-mono font-semibold uppercase tracking-wider text-cyan-400 mb-1 flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Bring Your Own Key (BYOK API Key)</span>
-                  </h4>
-                  <p className="text-xs text-slate-400 mb-3">Provide your external Google Gemini or OpenAI API Key for Circuit AI Copilot execution.</p>
-
-                  <div className="relative">
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
-                      value={formData.customApiKey}
-                      onChange={(e) => handleChange('customApiKey', e.target.value)}
-                      placeholder="AIzaSy... (Your private API Key)"
-                      className="w-full pl-3 pr-10 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 text-slate-200 font-mono outline-none transition"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer"
-                    >
-                      {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
                 {/* Session Termination / Logout */}
                 <div className="pt-4 border-t border-slate-800 flex justify-end">
                   <button

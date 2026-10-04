@@ -61,9 +61,6 @@ export default function Dashboard({ authUser, onOpenAuth, onSelectProject }) {
   }, [authUser]);
 
   const handleLaunchProject = (projectId) => {
-    if (onSelectProject) {
-      onSelectProject(projectId);
-    }
     navigate(`/lab/${projectId}`);
   };
 
